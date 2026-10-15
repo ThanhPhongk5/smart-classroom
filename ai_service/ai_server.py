@@ -76,6 +76,74 @@ def map_coord_to_seat(norm_x, norm_y, total_rows=5, total_cols=4, seats_per_desk
     return f'B{row}-D{col}{side}'
 
 
+class RealtimeCapture:
+    """
+    Luồng chụp ảnh thời gian thực: luôn đọc khung hình mới nhất từ Webcam,
+    xả sạch hàng đợi buffer (Windows DirectShow Buffer Queue).
+    Nhờ vậy, thao tác chuyển động của người trên màn hình hoàn toàn trùng khớp
+    thời gian thực (Zero Lag, không bị chậm trễ so với động tác thật).
+    """
+    def __init__(self, cam_id=0):
+        self.cap = None
+        if sys.platform.startswith('win'):
+            self.cap = cv2.VideoCapture(cam_id, cv2.CAP_DSHOW)
+        if self.cap is None or not self.cap.isOpened():
+            self.cap = cv2.VideoCapture(cam_id)
+
+        if self.cap and self.cap.isOpened():
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        self.ret = False
+        self.frame = None
+        self.running = True
+        self.lock = threading.Lock()
+
+        # Đọc ngay frame đầu tiên
+        if self.cap and self.cap.isOpened():
+            ret, frame = self.cap.read()
+            if ret:
+                self.ret = True
+                self.frame = frame
+
+        self.thread = threading.Thread(target=self._grab_loop, daemon=True)
+        self.thread.start()
+
+    def _grab_loop(self):
+        while self.running:
+            if not self.cap or not self.cap.isOpened():
+                time.sleep(0.05)
+                continue
+            ret, frame = self.cap.read()
+            if ret:
+                with self.lock:
+                    self.ret = True
+                    self.frame = frame
+            time.sleep(0.002)
+
+    def read(self):
+        with self.lock:
+            if not self.ret or self.frame is None:
+                return False, None
+            return True, self.frame.copy()
+
+    def isOpened(self):
+        return self.cap is not None and self.cap.isOpened()
+
+    def release(self):
+        self.running = False
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=0.4)
+        if self.cap:
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+            self.cap = None
+
+
 class VideoProcessor:
     def __init__(self):
         self.cap = None
@@ -127,19 +195,10 @@ class VideoProcessor:
             self.demo_seat_code = demo_seat
         self.fetch_room_layout()
         self.mode = 'webcam'
-        if sys.platform.startswith('win'):
-            self.cap = cv2.VideoCapture(cam_id, cv2.CAP_DSHOW)
-        if self.cap is None or not self.cap.isOpened():
-            self.cap = cv2.VideoCapture(cam_id)
+        self.cap = RealtimeCapture(cam_id)
         if not self.cap or not self.cap.isOpened():
             self.mode = 'idle'
             return False, 'Khong the mo Webcam'
-
-        # Toi uu toc do truyen va giam do tre (Latency & Buffer) tren Windows
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        self.cap.set(cv2.CAP_PROP_FPS, 30)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self.is_running = True
         self.thread = threading.Thread(target=self._process_loop, daemon=True)
@@ -256,12 +315,16 @@ class VideoProcessor:
 
         while self.is_running and self.cap:
             ret, frame = self.cap.read()
-            if not ret:
-                if loop_path and os.path.exists(loop_path):
-                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    continue
+            if not ret or frame is None:
+                if loop_path:
+                    if os.path.exists(loop_path):
+                        self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        continue
+                    else:
+                        break
                 else:
-                    break
+                    time.sleep(0.005)
+                    continue
 
             frame_idx += 1
             h, w, _ = frame.shape
@@ -269,8 +332,8 @@ class VideoProcessor:
             self.fps = 1.0 / max(0.001, curr_time - prev_time)
             prev_time = curr_time
 
-            # 1. Phat hien dien thoai va sach: Chay moi 2 frame hoac khi dang co dien thoai thi chay lien tuc
-            if frame_idx % 2 == 0 or len(cached_phones) > 0:
+            # 1. Phat hien dien thoai va sach: Chay moi 2 frame (~15 lan/giay, cuc nhay va muot ma, giu FPS toi da)
+            if frame_idx % 2 == 0:
                 obj_results = obj_model.predict(frame, classes=[67, 73], conf=0.18, imgsz=320, verbose=False)
                 new_phones = []
                 new_books = []
@@ -536,7 +599,7 @@ def generate_frames():
                 last_id = fid
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-            time.sleep(0.015)
+            time.sleep(0.005)
         else:
             blank = np.zeros((480, 640, 3), dtype=np.uint8)
             cv2.putText(blank, 'CAMERA DANG TAT', (200, 220),
@@ -546,12 +609,17 @@ def generate_frames():
             ret_enc, blank_jpg = cv2.imencode('.jpg', blank)
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + blank_jpg.tobytes() + b'\r\n')
-            time.sleep(0.4)
+            time.sleep(0.3)
 
 
 @app.route('/video_feed')
 def video_feed():
-    return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    resp = Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate, pre-check=0, post-check=0, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    resp.headers['Expires'] = '0'
+    resp.headers['X-Accel-Buffering'] = 'no'
+    return resp
 
 
 @app.route('/api/webcam/start', methods=['POST'])
