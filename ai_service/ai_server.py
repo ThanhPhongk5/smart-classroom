@@ -1,8 +1,8 @@
 """
 Smart Classroom AI Server - High Performance Realtime Engine (30 FPS Decoupled)
-Ket hop mo hinh chuyen dung lop hoc bestYolo11n.pt + YOLO11 Pose
+Ket hop YOLO11 Object Detection (Cell Phone conf=0.18) + YOLO11 Pose + bestYolo11n
 Kien truc Decoupled 2 Luong: Luong Camera 30 FPS doc lap voi Luong AI
-=> Triet tieu hoan toan do tre khung hinh, chuyen dong muot ma nhu camera goc.
+=> Triet tieu hoan toan do tre khung hinh, bat dien thoai & gio tay sieu nhay.
 """
 
 import os
@@ -39,28 +39,22 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
 script_dir = os.path.dirname(os.path.abspath(__file__))
-behavior_path = os.path.join(script_dir, 'bestYolo11n.pt')
+obj_path = os.path.join(script_dir, 'yolo11n.pt')
 pose_path = os.path.join(script_dir, 'yolo11n-pose.pt')
+behavior_path = os.path.join(script_dir, 'bestYolo11n.pt')
 
-print('[INFO] Dang khoi dong mo hinh AI Smart Classroom...')
-behavior_model = YOLO(behavior_path) if os.path.exists(behavior_path) else None
+print('[INFO] Dang khoi dong cac mo hinh AI Smart Classroom...')
+obj_model = YOLO(obj_path) if os.path.exists(obj_path) else None
 pose_model = YOLO(pose_path) if os.path.exists(pose_path) else None
-print(f'[INFO] Mo hinh Behavior: {"Co san (bestYolo11n.pt)" if behavior_model else "Khong tim thay"}')
-print(f'[INFO] Mo hinh Pose: {"Co san (yolo11n-pose.pt)" if pose_model else "Khong tim thay"}')
+behavior_model = YOLO(behavior_path) if os.path.exists(behavior_path) else None
+print(f'[INFO] Mo hinh Object (Dien thoai): {"Co san (yolo11n.pt)" if obj_model else "Khong tim thay"}')
+print(f'[INFO] Mo hinh Pose (Khung xuong):  {"Co san (yolo11n-pose.pt)" if pose_model else "Khong tim thay"}')
+print(f'[INFO] Mo hinh Behavior:           {"Co san (bestYolo11n.pt)" if behavior_model else "Khong tim thay"}')
 
 BACKEND_BASE_URL = os.environ.get('BACKEND_URL', 'https://smart-classroom-pyvl.onrender.com')
 SPRING_BOOT_URL = f'{BACKEND_BASE_URL}/api/device/behavior'
 SPRING_BOOT_SEATS_URL = f'{BACKEND_BASE_URL}/api/device/seats'
 DEVICE_KEY = 'esp32-secret-2026'
-
-BEHAVIOR_CLASSES = {
-    0: {"name_vi": "Gio tay", "color": (46, 204, 113), "status": "raising_hand"},
-    1: {"name_vi": "Doc sach", "color": (52, 152, 219), "status": "studying"},
-    2: {"name_vi": "Viet bai", "color": (155, 89, 182), "status": "studying"},
-    3: {"name_vi": "Dung dien thoai", "color": (40, 40, 235), "status": "using_phone"},
-    4: {"name_vi": "Guc dau", "color": (34, 126, 230), "status": "bowing_head"},
-    5: {"name_vi": "Nam bo ban", "color": (15, 196, 241), "status": "bowing_head"}
-}
 
 SKELETON_EDGES = [
     (0, 1), (0, 2), (1, 3), (2, 4),
@@ -155,7 +149,7 @@ class VideoProcessor:
         self.latest_boxes = []
         self.latest_skeletons = []
 
-        # Luong AI Worker chay ngam
+        # Luong AI Worker chay ngam song song
         self.ai_thread = threading.Thread(target=self._ai_worker_loop, daemon=True)
         self.ai_thread.start()
 
@@ -321,7 +315,7 @@ class VideoProcessor:
         self.mode = 'idle'
 
     def _ai_worker_loop(self):
-        """Luong AI phan tich hanh vi chay ngam song song: cuc nhay, update lien tuc 30-50 FPS"""
+        """Luong AI phan tich hanh vi chay ngam song song: sieu nhay bat dien thoai & gio tay"""
         while self.is_running:
             with self.lock:
                 frame = self.raw_frame.copy() if self.raw_frame is not None else None
@@ -341,48 +335,35 @@ class VideoProcessor:
             demo_user_status = 'studying'
             phone_alert = False
 
-            # 1. Nhan dien 6 hanh vi bang mo hinh bestYolo11n.pt
+            # 1. Phat hien dien thoai va sach qua obj_model (COCO class 67: cell phone, 73: book) - SIEU NHAY
+            detected_phones = []
+            detected_books = []
+            if obj_model is not None:
+                obj_results = obj_model.predict(frame, classes=[67, 73], conf=0.18, imgsz=320, verbose=False)
+                if len(obj_results) > 0 and obj_results[0].boxes is not None:
+                    for b in obj_results[0].boxes:
+                        cid = int(b.cls[0].item())
+                        box = b.xyxy[0].cpu().numpy().astype(int)
+                        conf = float(b.conf[0].item())
+                        if cid == 67:
+                            detected_phones.append((box, conf))
+                            phone_alert = True
+                        elif cid == 73:
+                            detected_books.append((box, conf))
+
+            # 2. Phat hien qua bestYolo11n.pt (neu co)
             if behavior_model is not None:
-                b_results = behavior_model.predict(frame, conf=0.25, imgsz=320, verbose=False)
+                b_results = behavior_model.predict(frame, conf=0.20, imgsz=320, verbose=False)
                 if len(b_results) > 0 and b_results[0].boxes is not None:
                     for b in b_results[0].boxes:
                         cid = int(b.cls[0].item())
                         conf = float(b.conf[0].item())
                         xyxy = b.xyxy[0].cpu().numpy().astype(int)
-                        if cid in BEHAVIOR_CLASSES:
-                            total += 1
-                            stats[cid] = stats.get(cid, 0) + 1
-                            meta = BEHAVIOR_CLASSES[cid]
-                            action_name = meta['name_vi']
-                            status_key = meta['status']
-                            box_color = meta['color']
+                        if cid == 3: # bestYolo11n phat hien dung DT
+                            detected_phones.append((xyxy, conf))
+                            phone_alert = True
 
-                            if cid == 3:
-                                phone_alert = True
-
-                            cx = (xyxy[0] + xyxy[2]) / 2.0
-                            cy = (xyxy[1] + xyxy[3]) / 2.0
-                            norm_x = cx / max(1, w)
-                            norm_y = cy / max(1, h)
-
-                            if self.demo_mode and total == 1:
-                                target_seat = self.demo_seat_code
-                                demo_user_detected = True
-                                demo_user_action = action_name
-                                demo_user_status = status_key
-                                seat_label = f'[DEMO] {target_seat}: {action_name}'
-                            else:
-                                target_seat = map_coord_to_seat(norm_x, norm_y, self.total_rows, self.total_cols, self.seats_per_desk)
-                                seat_label = f'{target_seat}: {action_name}'
-
-                            seat_updates.append({
-                                'seatCode': target_seat,
-                                'status': status_key,
-                                'action': action_name
-                            })
-                            boxes_to_draw.append((xyxy[0], xyxy[1], xyxy[2], xyxy[3], box_color, seat_label))
-
-            # 2. Neu chua co hop thoai hoac can bo sung Pose Skeleton
+            # 3. Phat hien nguoi va khung xuong qua pose_model
             if pose_model is not None:
                 p_results = pose_model.predict(frame, conf=0.25, imgsz=320, verbose=False)
                 if len(p_results) > 0 and p_results[0].boxes is not None and p_results[0].keypoints is not None:
@@ -390,21 +371,38 @@ class VideoProcessor:
                     kpts_data = p_results[0].keypoints.data.cpu().numpy()
 
                     for i, p_box in enumerate(p_boxes):
+                        total += 1
                         kpts = kpts_data[i]
                         px1, py1, px2, py2 = p_box
 
-                        # Neu chua co hop thoai tu behavior_model thi phat hien gio tay qua khung xuong
-                        if total == 0:
-                            total += 1
-                            cx = (px1 + px2) / 2.0
-                            cy = (py1 + py2) / 2.0
-                            norm_x = cx / max(1, w)
-                            norm_y = cy / max(1, h)
+                        cx = (px1 + px2) / 2.0
+                        cy = (py1 + py2) / 2.0
+                        norm_x = cx / max(1, w)
+                        norm_y = cy / max(1, h)
 
-                            l_shoulder, r_shoulder = kpts[5], kpts[6]
-                            l_elbow, r_elbow = kpts[7], kpts[8]
-                            l_wrist, r_wrist = kpts[9], kpts[10]
+                        # Kiem tra xem nguoi nay co dung dien thoai khong
+                        has_phone = False
+                        if self.demo_mode and len(detected_phones) > 0:
+                            has_phone = True
+                        else:
+                            for (ph_box, _) in detected_phones:
+                                ph_cx = (ph_box[0] + ph_box[2]) / 2
+                                ph_cy = (ph_box[1] + ph_box[3]) / 2
+                                if (px1 - 80 <= ph_cx <= px2 + 80) and (py1 <= ph_cy <= py2 + 100):
+                                    has_phone = True
+                                    break
 
+                        l_shoulder, r_shoulder = kpts[5], kpts[6]
+                        l_elbow, r_elbow = kpts[7], kpts[8]
+                        l_wrist, r_wrist = kpts[9], kpts[10]
+
+                        if has_phone:
+                            action_id = 3
+                            action_name = 'Dung dien thoai'
+                            status_key = 'using_phone'
+                            box_color = (40, 40, 235) # Do
+                        else:
+                            # Gio tay sieu nhay: nhan khi co tay cao hon vai hoac khuyu tay
                             is_raising = False
                             if l_wrist[2] > 0.20:
                                 if (l_shoulder[2] > 0.20 and l_wrist[1] < l_shoulder[1] + 25) or (l_elbow[2] > 0.20 and l_wrist[1] < l_elbow[1]):
@@ -417,31 +415,31 @@ class VideoProcessor:
                                 action_id = 0
                                 action_name = 'Gio tay'
                                 status_key = 'raising_hand'
-                                box_color = (46, 204, 113)
+                                box_color = (46, 204, 113) # Xanh la
                             else:
                                 action_id = 2
                                 action_name = 'Hoc bai'
                                 status_key = 'studying'
                                 box_color = (182, 89, 155)
 
-                            stats[action_id] = stats.get(action_id, 0) + 1
+                        stats[action_id] = stats.get(action_id, 0) + 1
 
-                            if self.demo_mode and total == 1:
-                                target_seat = self.demo_seat_code
-                                demo_user_detected = True
-                                demo_user_action = action_name
-                                demo_user_status = status_key
-                                seat_label = f'[DEMO] {target_seat}: {action_name}'
-                            else:
-                                target_seat = map_coord_to_seat(norm_x, norm_y, self.total_rows, self.total_cols, self.seats_per_desk)
-                                seat_label = f'{target_seat}: {action_name}'
+                        if self.demo_mode and total == 1:
+                            target_seat = self.demo_seat_code
+                            demo_user_detected = True
+                            demo_user_action = action_name
+                            demo_user_status = status_key
+                            seat_label = f'[DEMO] {target_seat}: {action_name}'
+                        else:
+                            target_seat = map_coord_to_seat(norm_x, norm_y, self.total_rows, self.total_cols, self.seats_per_desk)
+                            seat_label = f'{target_seat}: {action_name}'
 
-                            seat_updates.append({
-                                'seatCode': target_seat,
-                                'status': status_key,
-                                'action': action_name
-                            })
-                            boxes_to_draw.append((px1, py1, px2, py2, box_color, seat_label))
+                        seat_updates.append({
+                            'seatCode': target_seat,
+                            'status': status_key,
+                            'action': action_name
+                        })
+                        boxes_to_draw.append((px1, py1, px2, py2, box_color, seat_label))
 
                         # Ve xuong khop
                         for p1, p2 in SKELETON_EDGES:
@@ -452,6 +450,23 @@ class VideoProcessor:
                         for kp in kpts[:11]:
                             if kp[2] > 0.35:
                                 skeletons_to_draw.append(('circle', (int(kp[0]), int(kp[1]))))
+
+            # Neu khong co pose (vi du chi gio dien thoai truoc cam ma khong ro nguoi)
+            if total == 0 and len(detected_phones) > 0 and self.demo_mode:
+                total = 1
+                stats[3] = 1
+                demo_user_detected = True
+                demo_user_action = 'Dung dien thoai'
+                demo_user_status = 'using_phone'
+                seat_updates.append({
+                    'seatCode': self.demo_seat_code,
+                    'status': 'using_phone',
+                    'action': 'Dung dien thoai'
+                })
+
+            # Ve RIENG tung hop thoai dien thoai mau do ruc ro (DT xx%)
+            for (ph_box, ph_conf) in detected_phones:
+                boxes_to_draw.append((ph_box[0], ph_box[1], ph_box[2], ph_box[3], (0, 0, 255), f'DT {int(ph_conf*100)}%'))
 
             # Xu ly che do Demo Ambient
             if self.demo_mode and self.ambient_activity:
@@ -477,7 +492,7 @@ class VideoProcessor:
                     self.attention_score = score
                     self.latest_boxes = boxes_to_draw
                     self.latest_skeletons = skeletons_to_draw
-                    self.phone_detected_alert = phone_alert or (ambient_stats[3] > 0)
+                    self.phone_detected_alert = (phone_alert or ambient_stats[3] > 0)
 
                 self._sync_to_backend(full_seat_updates, ambient_stats, display_total, score)
             else:
@@ -490,11 +505,11 @@ class VideoProcessor:
                     self.attention_score = score
                     self.latest_boxes = boxes_to_draw
                     self.latest_skeletons = skeletons_to_draw
-                    self.phone_detected_alert = phone_alert or (stats.get(3, 0) > 0)
+                    self.phone_detected_alert = phone_alert
 
                 self._sync_to_backend(seat_updates, stats, total, score)
 
-            time.sleep(0.005)
+            time.sleep(0.01)
 
     def _draw_hud(self, frame):
         h, w, _ = frame.shape
@@ -703,7 +718,7 @@ if __name__ == '__main__':
     print('  SMART CLASSROOM HYBRID AI SERVER - DEMO & REALTIME ENGINE')
     print('  * Ho tro che do Demo Laptop Webcam ca nhan (Solo Demo)')
     print('  * Kien truc Decoupled 2 Luong: Video 30 FPS + AI Worker song song')
-    print('  * Mo hinh nhan dien hanh vi: bestYolo11n.pt (Sieu nhay)')
+    print('  * Mo hinh nhan dien: YOLO11 Object (Cell phone conf=0.18) + YOLO11 Pose')
     print(f'  * Cloud endpoint: {BACKEND_BASE_URL}')
     print('  * Video stream:  http://localhost:5000/video_feed')
     print('  * Status API:    http://localhost:5000/api/status')
