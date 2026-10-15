@@ -26,6 +26,14 @@ torch.set_num_threads(min(4, os.cpu_count() or 4))
 app = Flask(__name__)
 CORS(app)
 
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, PUT, DELETE'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, X-Device-Key, Authorization'
+    response.headers['Access-Control-Allow-Private-Network'] = 'true'
+    return response
+
 UPLOAD_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -40,8 +48,9 @@ pose_model = YOLO(pose_path)
 obj_model = YOLO(obj_path)
 print('[INFO] Mo hinh AI da san sang!')
 
-SPRING_BOOT_URL = 'http://localhost:8080/api/device/behavior'
-SPRING_BOOT_SEATS_URL = 'http://localhost:8080/api/device/seats'
+BACKEND_BASE_URL = os.environ.get('BACKEND_URL', 'https://smart-classroom-pyvl.onrender.com')
+SPRING_BOOT_URL = f'{BACKEND_BASE_URL}/api/device/behavior'
+SPRING_BOOT_SEATS_URL = f'{BACKEND_BASE_URL}/api/device/seats'
 DEVICE_KEY = 'esp32-secret-2026'
 
 SKELETON_EDGES = [
@@ -81,6 +90,7 @@ class VideoProcessor:
         self.attention_score = 0.0
         self.stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
         self.last_sync_time = 0
+        self.last_frame_post = 0
 
         # Cau hinh dong cua lop hoc
         self.total_rows = 5
@@ -97,7 +107,7 @@ class VideoProcessor:
     def fetch_room_layout(self):
         """Lay cau hinh phong hoc tu Spring Boot backend"""
         try:
-            res = requests.get('http://localhost:8080/api/rooms', timeout=1.5)
+            res = requests.get(f'{BACKEND_BASE_URL}/api/rooms', timeout=2.5)
             if res.status_code == 200:
                 for r in res.json():
                     if r.get('code') == self.room_code:
@@ -450,6 +460,21 @@ class VideoProcessor:
                 with self.lock:
                     self.current_frame = jpeg.tobytes()
 
+                # Dong bo anh frame len Cloud moi 250ms (~4 FPS) de xem video truc tiep tren Web
+                now_f = time.time()
+                if now_f - getattr(self, 'last_frame_post', 0) > 0.25:
+                    self.last_frame_post = now_f
+                    f_bytes = self.current_frame
+                    def _post_f(b):
+                        try:
+                            requests.post(f'{BACKEND_BASE_URL}/api/device/camera-frame',
+                                          data=b,
+                                          headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'image/jpeg'},
+                                          timeout=1.0)
+                        except Exception:
+                            pass
+                    threading.Thread(target=_post_f, args=(f_bytes,), daemon=True).start()
+
         self.is_running = False
         self.mode = 'idle'
 
@@ -615,7 +640,58 @@ if __name__ == '__main__':
     print('  SMART CLASSROOM HYBRID AI SERVER - DEMO & REALTIME ENGINE')
     print('  * Ho tro che do Demo Laptop Webcam ca nhan (Solo Demo)')
     print('  * Ho tro cau hinh quy mo phong hoc dong (Dynamic Layout)')
+    print('  * Cloud endpoint: https://smart-classroom-pyvl.onrender.com')
     print('  * Video stream:  http://localhost:5000/video_feed')
     print('  * Status API:    http://localhost:5000/api/status')
     print('=' * 60)
+
+def _cloud_listener():
+    """Lang nghe lenh Bat/Tat Webcam truc tiep tu Web Dashboard va gui Heartbeat"""
+    print(f'[INFO] AI Server da ket noi Cloud: {BACKEND_BASE_URL}')
+    print('[INFO] Che do CHO LENH: Chi bat webcam khi ban nhan nut tren Web Dashboard!')
+    while True:
+        try:
+            time.sleep(1.0)
+            status_payload = {
+                'running': processor.is_running,
+                'mode': processor.mode,
+                'room': processor.room_code,
+                'demoMode': processor.demo_mode,
+                'demoSeat': processor.demo_seat_code,
+                'fps': round(processor.fps, 1),
+                'totalStudents': processor.total_students,
+                'attentionScore': round(processor.attention_score, 1)
+            }
+            r = requests.post(f'{BACKEND_BASE_URL}/api/device/camera-heartbeat',
+                              json=status_payload,
+                              headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'application/json'},
+                              timeout=2.0)
+            if r.status_code == 200:
+                cmd = r.json().get('command', {})
+                cmd_active = cmd.get('active', False)
+                if cmd_active and not processor.is_running:
+                    room = cmd.get('roomCode', 'A101')
+                    demo_mode = cmd.get('demoMode', True)
+                    demo_seat = cmd.get('demoSeat', 'B1-D1L')
+                    print(f'\n>>> [LENH TU WEB] NHAN LENH BAT WEBCAM (Phong: {room}, Cho: {demo_seat}) <<<')
+                    processor.start_webcam(0, room, demo_mode, demo_seat)
+                elif not cmd_active and processor.is_running:
+                    print('\n>>> [LENH TU WEB] NHAN LENH TAT WEBCAM <<<')
+                    processor.stop()
+        except Exception:
+            pass
+
+
+if __name__ == '__main__':
+    print('=' * 60)
+    print('  SMART CLASSROOM HYBRID AI SERVER - DEMO & REALTIME ENGINE')
+    print('  * Ho tro che do Demo Laptop Webcam ca nhan (Solo Demo)')
+    print('  * Ho tro cau hinh quy mo phong hoc dong (Dynamic Layout)')
+    print(f'  * Cloud endpoint: {BACKEND_BASE_URL}')
+    print('  * Video stream:  http://localhost:5000/video_feed')
+    print('  * Status API:    http://localhost:5000/api/status')
+    print('  * CHE DO: CHO LENH BAT WEBCAM TU WEB (KHONG TU DONG BAT)')
+    print('=' * 60)
+
+    threading.Thread(target=_cloud_listener, daemon=True).start()
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)

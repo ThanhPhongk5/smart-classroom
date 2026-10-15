@@ -1,13 +1,16 @@
-package com.iot.classroom.controller;
+﻿package com.iot.classroom.controller;
 
 import com.iot.classroom.model.*;
 import com.iot.classroom.repository.Repos;
 import com.iot.classroom.service.AutomationService;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @RestController @RequestMapping("/api/device")
 public class DeviceController {
@@ -17,6 +20,19 @@ public class DeviceController {
     private final Repos.SeatRepo seatRepo;
     private final Repos.LogRepo logs;
     @Value("${app.device-key}") private String deviceKey;
+
+    public record CameraCommand(
+        boolean active,
+        String roomCode,
+        boolean demoMode,
+        String demoSeat,
+        long timestamp
+    ) {}
+
+    private static volatile CameraCommand currentCameraCommand = new CameraCommand(false, "A101", true, "B1-D1L", System.currentTimeMillis());
+    private static final Map<String, Object> aiServerStatus = new ConcurrentHashMap<>();
+    private static volatile byte[] latestFrame = null;
+    private static volatile long lastHeartbeat = 0;
 
     public DeviceController(AutomationService automation, Repos.RoomRepo rooms,
                             Repos.BehaviorRepo behaviorRepo, Repos.SeatRepo seatRepo,
@@ -100,5 +116,65 @@ public class DeviceController {
             });
         }
         return ResponseEntity.ok(Map.of("status", "success"));
+    }
+
+    // --- Remote camera command & status API ---
+
+    @PostMapping("/camera-command")
+    public ResponseEntity<?> setCameraCommand(@RequestBody Map<String, Object> req) {
+        boolean active = Boolean.TRUE.equals(req.get("active"));
+        String roomCode = req.getOrDefault("roomCode", "A101").toString();
+        boolean demoMode = !Boolean.FALSE.equals(req.get("demoMode"));
+        String demoSeat = req.getOrDefault("demoSeat", "B1-D1L").toString();
+
+        currentCameraCommand = new CameraCommand(active, roomCode, demoMode, demoSeat, System.currentTimeMillis());
+        return ResponseEntity.ok(Map.of("status", "success", "command", currentCameraCommand));
+    }
+
+    @GetMapping("/camera-command")
+    public ResponseEntity<?> getCameraCommand() {
+        return ResponseEntity.ok(currentCameraCommand);
+    }
+
+    @PostMapping("/camera-heartbeat")
+    public ResponseEntity<?> cameraHeartbeat(
+            @RequestHeader(value = "X-Device-Key", required = false) String key,
+            @RequestBody Map<String, Object> status) {
+        if (!deviceKey.equals(key)) return ResponseEntity.status(401).body(Map.of("message", "Sai device key"));
+        aiServerStatus.putAll(status);
+        lastHeartbeat = System.currentTimeMillis();
+        return ResponseEntity.ok(Map.of("status", "success", "command", currentCameraCommand));
+    }
+
+    @GetMapping("/camera-status")
+    public ResponseEntity<?> getCameraStatus() {
+        boolean isOnline = (System.currentTimeMillis() - lastHeartbeat) < 6000;
+        Map<String, Object> res = new HashMap<>(aiServerStatus);
+        res.put("online", isOnline);
+        res.put("commandActive", currentCameraCommand.active());
+        if (!isOnline) {
+            res.put("running", false);
+        }
+        return ResponseEntity.ok(res);
+    }
+
+    @PostMapping(value = "/camera-frame", consumes = MediaType.IMAGE_JPEG_VALUE)
+    public ResponseEntity<?> uploadFrame(
+            @RequestHeader(value = "X-Device-Key", required = false) String key,
+            @RequestBody byte[] frameData) {
+        if (!deviceKey.equals(key)) return ResponseEntity.status(401).body(Map.of("message", "Sai device key"));
+        latestFrame = frameData;
+        lastHeartbeat = System.currentTimeMillis();
+        return ResponseEntity.ok(Map.of("status", "success"));
+    }
+
+    @GetMapping(value = "/camera-frame", produces = MediaType.IMAGE_JPEG_VALUE)
+    public ResponseEntity<byte[]> getLatestFrame() {
+        if (latestFrame == null || (System.currentTimeMillis() - lastHeartbeat) > 6000) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
+                .body(latestFrame);
     }
 }

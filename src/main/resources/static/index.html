@@ -491,10 +491,24 @@ let currentDemoSeatCode = 'B1-D1L';
 let soloDemoActive = true;
 let currentRoomLayout = { rowCount: 5, colCount: 4, seatsPerDesk: 2 };
 
+let frameInterval = null;
+
 async function toggleWebcam() {
   try {
-    toast('Đang khởi động Webcam...');
-    const res = await fetch(AI_SERVER + '/api/webcam/start', {
+    toast('Đang gửi lệnh bật Webcam...');
+    // 1. Gửi lệnh điều khiển camera lên Cloud backend (Hoạt động hoàn hảo qua HTTPS Render)
+    await api('/api/device/camera-command', {
+      method: 'POST',
+      body: {
+        active: true,
+        roomCode: currentRoomCode,
+        demoMode: soloDemoActive,
+        demoSeat: currentDemoSeatCode
+      }
+    });
+
+    // 2. Gửi thêm trực tiếp localhost nếu đang chạy nội bộ
+    fetch(AI_SERVER + '/api/webcam/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -503,30 +517,34 @@ async function toggleWebcam() {
         demoMode: soloDemoActive,
         demoSeat: currentDemoSeatCode
       })
-    }).then(r => r.json());
+    }).catch(() => {});
 
-    if (res.success) {
-      toast('Đã bật Webcam thành công! (Liên kết: ' + currentDemoSeatCode + ')');
-      const img = $('aiStreamImg');
-      if (img) img.src = AI_SERVER + '/video_feed?t=' + Date.now();
-      checkAIStatus();
-    } else {
-      toast('Không thể mở Webcam: ' + res.message);
-    }
+    toast('Đã gửi lệnh bật Webcam! Chờ AI Server kết nối...');
+    setTimeout(checkAIStatus, 800);
   } catch (err) {
-    toast('Chưa khởi động AI Server! Hãy chạy file ai_server.py.');
+    toast('Lỗi khi gửi lệnh bật: ' + (err.message || 'Không thể kết nối'));
   }
 }
 
 async function stopStream() {
   try {
-    await fetch(AI_SERVER + '/api/webcam/stop', { method: 'POST' });
-    toast('Đã dừng Camera / Video');
-    const img = $('aiStreamImg');
-    if (img) img.src = AI_SERVER + '/video_feed?t=' + Date.now();
-    checkAIStatus();
+    // 1. Gửi lệnh tắt camera lên Cloud backend
+    await api('/api/device/camera-command', {
+      method: 'POST',
+      body: { active: false }
+    });
+
+    // 2. Gửi thêm trực tiếp localhost
+    fetch(AI_SERVER + '/api/webcam/stop', { method: 'POST' }).catch(() => {});
+
+    toast('Đã gửi lệnh dừng Camera');
+    if (frameInterval) {
+      clearInterval(frameInterval);
+      frameInterval = null;
+    }
+    setTimeout(checkAIStatus, 800);
   } catch (err) {
-    toast('Không thể kết nối AI Server');
+    toast('Lỗi khi gửi lệnh dừng: ' + (err.message || 'Không thể kết nối'));
   }
 }
 
@@ -559,33 +577,54 @@ async function handleVideoUpload(input) {
 }
 
 async function checkAIStatus() {
+  let s = null;
+  // Ưu tiên kiểm tra trạng thái camera từ Cloud Backend (do AI Server đẩy lên định kỳ)
   try {
-    const s = await fetch(AI_SERVER + '/api/status').then(r => r.json());
-    const badge = $('streamBadge');
-    const btnW = $('btnWebcam');
-    const btnS = $('btnStop');
-    if (s.running) {
-      if (badge) {
-        badge.className = 'stream-badge live';
-        const demoNote = s.demoMode ? (' [Demo: ' + (s.demoSeat || '') + ']') : '';
-        badge.innerHTML = '<span class="dot on"></span> Đang chạy (' + (s.mode === 'webcam' ? 'Webcam' : 'Video') + ' - ' + s.fps + ' FPS)' + demoNote;
-      }
-      if (btnW) btnW.style.display = 'none';
-      if (btnS) btnS.style.display = 'inline-flex';
-    } else {
-      if (badge) {
-        badge.className = 'stream-badge';
-        badge.innerHTML = '<span class="dot"></span> Camera chờ';
-      }
-      if (btnW) btnW.style.display = 'inline-flex';
-      if (btnS) btnS.style.display = 'none';
-    }
+    s = await api('/api/device/camera-status');
   } catch (e) {
-    const badge = $('streamBadge');
+    try {
+      s = await fetch(AI_SERVER + '/api/status').then(r => r.json());
+    } catch (e2) {}
+  }
+
+  const badge = $('streamBadge');
+  const btnW = $('btnWebcam');
+  const btnS = $('btnStop');
+  const img = $('aiStreamImg');
+
+  if (s && s.running) {
+    if (badge) {
+      badge.className = 'stream-badge live';
+      const demoNote = s.demoMode ? (' [Demo: ' + (s.demoSeat || '') + ']') : '';
+      badge.innerHTML = '<span class="dot on"></span> Đang chạy (' + (s.mode === 'webcam' ? 'Webcam' : 'Video') + ' - ' + (s.fps || 15) + ' FPS)' + demoNote;
+    }
+    if (btnW) btnW.style.display = 'none';
+    if (btnS) btnS.style.display = 'inline-flex';
+
+    if (img && !frameInterval) {
+      frameInterval = setInterval(() => {
+        if (location.protocol === 'http:' && location.hostname === 'localhost') {
+          img.src = AI_SERVER + '/video_feed?t=' + Date.now();
+        } else {
+          img.src = '/api/device/camera-frame?t=' + Date.now();
+        }
+      }, 350);
+    }
+  } else {
+    if (frameInterval) {
+      clearInterval(frameInterval);
+      frameInterval = null;
+    }
     if (badge) {
       badge.className = 'stream-badge';
-      badge.innerHTML = '<span class="dot"></span> AI Server ngoại tuyến';
+      if (s && s.online) {
+        badge.innerHTML = '<span class="dot" style="background:#10b981"></span> AI Server sẵn sàng (Chờ bật)';
+      } else {
+        badge.innerHTML = '<span class="dot"></span> Camera chờ (Chạy run_ai.bat)';
+      }
     }
+    if (btnW) btnW.style.display = 'inline-flex';
+    if (btnS) btnS.style.display = 'none';
   }
 }
 
