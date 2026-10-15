@@ -601,19 +601,14 @@ async function checkAIStatus() {
     if (btnW) btnW.style.display = 'none';
     if (btnS) btnS.style.display = 'inline-flex';
 
-    if (img && !frameInterval) {
-      frameInterval = setInterval(() => {
-        if (location.protocol === 'http:' && location.hostname === 'localhost') {
-          img.src = AI_SERVER + '/video_feed?t=' + Date.now();
-        } else {
-          img.src = '/api/device/camera-frame?t=' + Date.now();
-        }
-      }, 350);
+    if (img && !img._isStreaming) {
+      img._isStreaming = true;
+      img.src = AI_SERVER + '/video_feed';
     }
   } else {
-    if (frameInterval) {
-      clearInterval(frameInterval);
-      frameInterval = null;
+    if (img && img._isStreaming) {
+      img._isStreaming = false;
+      img.src = AI_SERVER + '/video_feed';
     }
     if (badge) {
       badge.className = 'stream-badge';

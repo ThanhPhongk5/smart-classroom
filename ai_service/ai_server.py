@@ -91,6 +91,7 @@ class VideoProcessor:
         self.stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
         self.last_sync_time = 0
         self.last_frame_post = 0
+        self.frame_id = 0
 
         # Cau hinh dong cua lop hoc
         self.total_rows = 5
@@ -268,10 +269,9 @@ class VideoProcessor:
             self.fps = 1.0 / max(0.001, curr_time - prev_time)
             prev_time = curr_time
 
-            # 1. Phat hien dien thoai va sach qua Object Detection
-            # Chay xen ke moi 2 frame hoac khi co dien thoai de giam 50% tai CPU, FPS tang gap doi
-            if frame_idx % 2 == 0 or len(cached_phones) > 0:
-                obj_results = obj_model.predict(frame, classes=[67, 73], conf=0.20, imgsz=320, verbose=False)
+            # 1. Phat hien dien thoai va sach qua Object Detection dinh ky moi 4 frame
+            if frame_idx % 4 == 0:
+                obj_results = obj_model.predict(frame, classes=[67, 73], conf=0.22, imgsz=256, verbose=False)
                 new_phones = []
                 new_books = []
                 if len(obj_results) > 0 and obj_results[0].boxes is not None:
@@ -289,8 +289,8 @@ class VideoProcessor:
             detected_phones = cached_phones
             detected_books = cached_books
 
-            # 2. Phat hien nguoi va khung xuong qua Pose Model voi imgsz=320 sieu nhe, toc do 25-30 FPS
-            pose_results = pose_model.predict(frame, conf=0.35, imgsz=320, verbose=False)
+            # 2. Phat hien nguoi va khung xuong qua Pose Model voi imgsz=256 sieu nhe, toc do 30+ FPS
+            pose_results = pose_model.predict(frame, conf=0.35, imgsz=256, verbose=False)
 
             stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
             total = 0
@@ -454,11 +454,12 @@ class VideoProcessor:
             # Ve HUD thong so va huong dan len frame
             self._draw_hud(frame)
 
-            # Nen JPEG chat luong 70 de truyen tai sieu nhanh khong bi giat
-            ret_enc, jpeg = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+            # Nen JPEG chat luong 65 de truyen tai sieu nhanh khong bi giat
+            ret_enc, jpeg = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
             if ret_enc:
                 with self.lock:
                     self.current_frame = jpeg.tobytes()
+                    self.frame_id = (self.frame_id + 1) % 1000000
 
                 # Dong bo anh frame len Cloud moi 250ms (~4 FPS) de xem video truc tiep tren Web
                 now_f = time.time()
@@ -527,12 +528,18 @@ processor = VideoProcessor()
 
 
 def generate_frames():
+    last_id = -1
     while True:
         with processor.lock:
             frame = processor.current_frame
+            fid = getattr(processor, 'frame_id', 0)
+
         if frame is not None:
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            if fid != last_id:
+                last_id = fid
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            time.sleep(0.015)
         else:
             blank = np.zeros((480, 640, 3), dtype=np.uint8)
             cv2.putText(blank, 'CAMERA DANG TAT', (200, 220),
@@ -542,8 +549,7 @@ def generate_frames():
             ret_enc, blank_jpg = cv2.imencode('.jpg', blank)
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + blank_jpg.tobytes() + b'\r\n')
-            time.sleep(0.3)
-        time.sleep(0.01)
+            time.sleep(0.4)
 
 
 @app.route('/video_feed')
