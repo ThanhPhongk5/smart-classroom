@@ -92,6 +92,9 @@ class VideoProcessor:
         self.last_sync_time = 0
         self.last_frame_post = 0
         self.frame_id = 0
+        self.ai_busy = False
+        self.cached_overlays = []
+        self.cached_phones = []
 
         # Cau hinh dong cua lop hoc
         self.total_rows = 5
@@ -248,53 +251,60 @@ class VideoProcessor:
         res.append({'seatCode': demo_seat_code, 'status': demo_status, 'action': demo_action})
         return res
 
-    def _process_loop(self, loop_path=None):
-        prev_time = time.time()
-        frame_idx = 0
-        cached_phones = []
-        cached_books = []
+    def _draw_cached_detections(self, frame):
+        with self.lock:
+            overlays = list(self.cached_overlays)
+            phones = list(self.cached_phones)
 
-        while self.is_running and self.cap:
-            ret, frame = self.cap.read()
-            if not ret:
-                if loop_path and os.path.exists(loop_path):
-                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                    continue
-                else:
-                    break
+        for item in overlays:
+            px1, py1, px2, py2 = item['box']
+            box_color = item['color']
+            seat_label = item['label']
+            kpts = item['kpts']
 
-            frame_idx += 1
+            cv2.rectangle(frame, (px1, py1), (px2, py2), box_color, 2)
+            (lw, lh), _ = cv2.getTextSize(seat_label, cv2.FONT_HERSHEY_SIMPLEX, 0.52, 2)
+            cv2.rectangle(frame, (px1, max(0, py1 - 26)), (px1 + lw + 14, py1), box_color, -1)
+            cv2.putText(frame, seat_label, (px1 + 6, max(18, py1 - 8)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 2)
+
+            for p1, p2 in SKELETON_EDGES:
+                if kpts[p1][2] > 0.4 and kpts[p2][2] > 0.4:
+                    pt1 = (int(kpts[p1][0]), int(kpts[p1][1]))
+                    pt2 = (int(kpts[p2][0]), int(kpts[p2][1]))
+                    cv2.line(frame, pt1, pt2, (0, 255, 255), 2)
+
+            for kp in kpts[:11]:
+                if kp[2] > 0.4:
+                    cv2.circle(frame, (int(kp[0]), int(kp[1])), 4, (0, 0, 255), -1)
+
+        for (ph_box, ph_conf) in phones:
+            cv2.rectangle(frame, (ph_box[0], ph_box[1]), (ph_box[2], ph_box[3]), (0, 0, 255), 2)
+            cv2.putText(frame, f'DT {int(ph_conf*100)}%', (ph_box[0], max(15, ph_box[1] - 5)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 2)
+
+    def _run_ai_worker(self, frame):
+        """Tien trinh AI chay nen: xu ly Pose + Object ma khong lam giat lag luong video"""
+        try:
             h, w, _ = frame.shape
-            curr_time = time.time()
-            self.fps = 1.0 / max(0.001, curr_time - prev_time)
-            prev_time = curr_time
+            obj_results = obj_model.predict(frame, classes=[67, 73], conf=0.22, imgsz=256, verbose=False)
+            detected_phones = []
+            detected_books = []
+            if len(obj_results) > 0 and obj_results[0].boxes is not None:
+                for b in obj_results[0].boxes:
+                    cid = int(b.cls[0].item())
+                    box = b.xyxy[0].cpu().numpy().astype(int)
+                    conf = float(b.conf[0].item())
+                    if cid == 67:
+                        detected_phones.append((box, conf))
+                    elif cid == 73:
+                        detected_books.append((box, conf))
 
-            # 1. Phat hien dien thoai va sach qua Object Detection dinh ky moi 4 frame
-            if frame_idx % 4 == 0:
-                obj_results = obj_model.predict(frame, classes=[67, 73], conf=0.22, imgsz=256, verbose=False)
-                new_phones = []
-                new_books = []
-                if len(obj_results) > 0 and obj_results[0].boxes is not None:
-                    for b in obj_results[0].boxes:
-                        cid = int(b.cls[0].item())
-                        box = b.xyxy[0].cpu().numpy().astype(int)
-                        conf = float(b.conf[0].item())
-                        if cid == 67:
-                            new_phones.append((box, conf))
-                        elif cid == 73:
-                            new_books.append((box, conf))
-                cached_phones = new_phones
-                cached_books = new_books
-
-            detected_phones = cached_phones
-            detected_books = cached_books
-
-            # 2. Phat hien nguoi va khung xuong qua Pose Model voi imgsz=256 sieu nhe, toc do 30+ FPS
             pose_results = pose_model.predict(frame, conf=0.35, imgsz=256, verbose=False)
-
             stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
             total = 0
             seat_updates = []
+            overlays = []
             demo_user_detected = False
             demo_user_action = 'Hoc bai'
             demo_user_status = 'studying'
@@ -313,7 +323,6 @@ class VideoProcessor:
                     norm_x = cx / max(1, w)
                     norm_y = cy / max(1, h)
 
-                    # Kiem tra co dien thoai gan nguoi nay khong
                     has_phone = False
                     for (ph_box, ph_conf) in detected_phones:
                         ph_cx = (ph_box[0] + ph_box[2]) / 2
@@ -330,7 +339,7 @@ class VideoProcessor:
                         action_id = 3
                         action_name = 'Dung dien thoai'
                         status_key = 'using_phone'
-                        box_color = (40, 40, 235)  # Do
+                        box_color = (40, 40, 235)
                     else:
                         is_raising = False
                         if l_wrist[2] > 0.4 and l_shoulder[2] > 0.4 and l_wrist[1] < l_shoulder[1]:
@@ -342,7 +351,7 @@ class VideoProcessor:
                             action_id = 0
                             action_name = 'Gio tay'
                             status_key = 'raising_hand'
-                            box_color = (46, 204, 113)  # Xanh la
+                            box_color = (46, 204, 113)
                         else:
                             avg_shoulder_y = (l_shoulder[1] + r_shoulder[1]) / 2 if (l_shoulder[2] > 0.3 and r_shoulder[2] > 0.3) else py1 + (py2 - py1) * 0.3
                             head_drop = (nose[1] - avg_shoulder_y) if nose[2] > 0.3 else 0
@@ -351,12 +360,12 @@ class VideoProcessor:
                                 action_id = 5
                                 action_name = 'Nam bo ban'
                                 status_key = 'bowing_head'
-                                box_color = (15, 196, 241)  # Vang cam
+                                box_color = (15, 196, 241)
                             elif head_drop > 5:
                                 action_id = 4
                                 action_name = 'Guc dau'
                                 status_key = 'bowing_head'
-                                box_color = (34, 126, 230)  # Cam
+                                box_color = (34, 126, 230)
                             else:
                                 has_book = False
                                 for (bk_box, _) in detected_books:
@@ -378,7 +387,6 @@ class VideoProcessor:
 
                     stats[action_id] = stats.get(action_id, 0) + 1
 
-                    # Xac dinh ma ghe: Neu Solo Demo Mode va chi co 1 nguoi thi map truc tiep vao demo_seat_code
                     if self.demo_mode and total == 1:
                         target_seat = self.demo_seat_code
                         demo_user_detected = True
@@ -395,37 +403,16 @@ class VideoProcessor:
                         'action': action_name
                     })
 
-                    # Ve Bounding Box va Khung xuong
-                    cv2.rectangle(frame, (px1, py1), (px2, py2), box_color, 2)
+                    overlays.append({
+                        'box': (px1, py1, px2, py2),
+                        'color': box_color,
+                        'label': seat_label,
+                        'kpts': kpts
+                    })
 
-                    # Label tren dau
-                    (lw, lh), _ = cv2.getTextSize(seat_label, cv2.FONT_HERSHEY_SIMPLEX, 0.52, 2)
-                    cv2.rectangle(frame, (px1, max(0, py1 - 26)), (px1 + lw + 14, py1), box_color, -1)
-                    cv2.putText(frame, seat_label, (px1 + 6, max(18, py1 - 8)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 2)
-
-                    # Ve xuong khop
-                    for p1, p2 in SKELETON_EDGES:
-                        if kpts[p1][2] > 0.4 and kpts[p2][2] > 0.4:
-                            pt1 = (int(kpts[p1][0]), int(kpts[p1][1]))
-                            pt2 = (int(kpts[p2][0]), int(kpts[p2][1]))
-                            cv2.line(frame, pt1, pt2, (0, 255, 255), 2)
-
-                    for kp in kpts[:11]:
-                        if kp[2] > 0.4:
-                            cv2.circle(frame, (int(kp[0]), int(kp[1])), 4, (0, 0, 255), -1)
-
-            # Ve hop thoai dien thoai
-            for (ph_box, ph_conf) in detected_phones:
-                cv2.rectangle(frame, (ph_box[0], ph_box[1]), (ph_box[2], ph_box[3]), (0, 0, 255), 2)
-                cv2.putText(frame, f'DT {int(ph_conf*100)}%', (ph_box[0], max(15, ph_box[1] - 5)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 2)
-
-            # Xu ly tong the khi Solo Demo Mode co Ambient
             if self.demo_mode and self.ambient_activity:
                 full_seat_updates = self._generate_ambient_seats(self.demo_seat_code, demo_user_status, demo_user_action)
                 display_total = len(full_seat_updates)
-                # Tinh stats gia lap tong the de HUD dep mat
                 ambient_stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
                 for su in full_seat_updates:
                     act = su.get('action', '')
@@ -451,17 +438,46 @@ class VideoProcessor:
                 self.attention_score = round((pos / max(1, total)) * 100, 1) if total > 0 else 0.0
                 self._sync_to_backend(seat_updates, stats, total, self.attention_score)
 
-            # Ve HUD thong so va huong dan len frame
+            with self.lock:
+                self.cached_overlays = overlays
+                self.cached_phones = detected_phones
+        except Exception:
+            pass
+        finally:
+            self.ai_busy = False
+
+    def _process_loop(self, loop_path=None):
+        prev_time = time.time()
+
+        while self.is_running and self.cap:
+            ret, frame = self.cap.read()
+            if not ret:
+                if loop_path and os.path.exists(loop_path):
+                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    continue
+                else:
+                    break
+
+            curr_time = time.time()
+            self.fps = 1.0 / max(0.001, curr_time - prev_time)
+            prev_time = curr_time
+
+            # Kich hoat AI chay ngam bat dong bo
+            if not self.ai_busy:
+                self.ai_busy = True
+                ai_frame = frame.copy()
+                threading.Thread(target=self._run_ai_worker, args=(ai_frame,), daemon=True).start()
+
+            # Ve bounding boxes va HUD da tinh toan len frame (< 1ms -> 30 FPS cuc muot)
+            self._draw_cached_detections(frame)
             self._draw_hud(frame)
 
-            # Nen JPEG chat luong 65 de truyen tai sieu nhanh khong bi giat
             ret_enc, jpeg = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
             if ret_enc:
                 with self.lock:
                     self.current_frame = jpeg.tobytes()
                     self.frame_id = (self.frame_id + 1) % 1000000
 
-                # Dong bo anh frame len Cloud moi 250ms (~4 FPS) de xem video truc tiep tren Web
                 now_f = time.time()
                 if now_f - getattr(self, 'last_frame_post', 0) > 0.25:
                     self.last_frame_post = now_f
@@ -475,6 +491,8 @@ class VideoProcessor:
                         except Exception:
                             pass
                     threading.Thread(target=_post_f, args=(f_bytes,), daemon=True).start()
+
+            time.sleep(0.005)
 
         self.is_running = False
         self.mode = 'idle'
