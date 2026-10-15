@@ -1162,7 +1162,7 @@ $('seatModal').addEventListener('click', e => { if (e.target === $('seatModal'))
       }
       const logTab = $('log');
       if (logTab && logTab.classList.contains('on')) loadLogs().catch(() => {});
-    }, 4000);
+    }, 1000);
   } catch (e) {
     console.error('Initialization error:', e);
   }

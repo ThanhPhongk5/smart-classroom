@@ -20,8 +20,8 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from ultralytics import YOLO
 
-# Toi uu hoa luong CPU cho PyTorch tren Windows
-torch.set_num_threads(min(4, os.cpu_count() or 4))
+# Toi uu hoa luong CPU cho PyTorch tren Windows (6 cores cho phep predict ~23ms)
+torch.set_num_threads(min(6, os.cpu_count() or 6))
 
 app = Flask(__name__)
 CORS(app)
@@ -92,7 +92,9 @@ class VideoProcessor:
         self.last_sync_time = 0
         self.last_frame_post = 0
         self.frame_id = 0
-        self.ai_busy = False
+        self.ai_event = threading.Event()
+        self.latest_input_frame = None
+        self.ai_thread = None
         self.cached_overlays = []
         self.cached_phones = []
 
@@ -145,6 +147,9 @@ class VideoProcessor:
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
         self.is_running = True
+        self.ai_event.clear()
+        self.ai_thread = threading.Thread(target=self._ai_worker_loop, daemon=True)
+        self.ai_thread.start()
         self.thread = threading.Thread(target=self._process_loop, daemon=True)
         self.thread.start()
         return True, 'Mo Webcam thanh cong (Che do Demo: ' + ('Bat' if self.demo_mode else 'Tat') + ')'
@@ -166,8 +171,11 @@ class VideoProcessor:
 
     def stop(self):
         self.is_running = False
+        self.ai_event.set()
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1.0)
+        if self.ai_thread and self.ai_thread.is_alive():
+            self.ai_thread.join(timeout=1.0)
         if self.cap:
             try:
                 self.cap.release()
@@ -179,7 +187,7 @@ class VideoProcessor:
 
     def _sync_to_backend(self, seat_updates, overall_stats, student_count, attention_score):
         now = time.time()
-        if now - self.last_sync_time < 1.5:
+        if now - self.last_sync_time < 0.6:
             return
         self.last_sync_time = now
 
@@ -283,168 +291,185 @@ class VideoProcessor:
             cv2.putText(frame, f'DT {int(ph_conf*100)}%', (ph_box[0], max(15, ph_box[1] - 5)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 255), 2)
 
-    def _run_ai_worker(self, frame):
-        """Tien trinh AI chay nen: xu ly Pose + Object ma khong lam giat lag luong video"""
-        try:
-            h, w, _ = frame.shape
-            obj_results = obj_model.predict(frame, classes=[67, 73], conf=0.22, imgsz=256, verbose=False)
-            detected_phones = []
-            detected_books = []
-            if len(obj_results) > 0 and obj_results[0].boxes is not None:
-                for b in obj_results[0].boxes:
-                    cid = int(b.cls[0].item())
-                    box = b.xyxy[0].cpu().numpy().astype(int)
-                    conf = float(b.conf[0].item())
-                    if cid == 67:
-                        detected_phones.append((box, conf))
-                    elif cid == 73:
-                        detected_books.append((box, conf))
-
-            pose_results = pose_model.predict(frame, conf=0.35, imgsz=256, verbose=False)
-            stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-            total = 0
-            seat_updates = []
-            overlays = []
-            demo_user_detected = False
-            demo_user_action = 'Hoc bai'
-            demo_user_status = 'studying'
-
-            if len(pose_results) > 0 and pose_results[0].boxes is not None and pose_results[0].keypoints is not None:
-                p_boxes = pose_results[0].boxes.xyxy.cpu().numpy().astype(int)
-                kpts_data = pose_results[0].keypoints.data.cpu().numpy()
-
-                for i, p_box in enumerate(p_boxes):
-                    total += 1
-                    kpts = kpts_data[i]
-                    px1, py1, px2, py2 = p_box
-
-                    cx = (px1 + px2) / 2.0
-                    cy = (py1 + py2) / 2.0
-                    norm_x = cx / max(1, w)
-                    norm_y = cy / max(1, h)
-
-                    has_phone = False
-                    for (ph_box, ph_conf) in detected_phones:
-                        ph_cx = (ph_box[0] + ph_box[2]) / 2
-                        ph_cy = (ph_box[1] + ph_box[3]) / 2
-                        if (px1 - 40 <= ph_cx <= px2 + 40) and (py1 <= ph_cy <= py2 + 60):
-                            has_phone = True
-                            break
-
-                    nose = kpts[0]
-                    l_shoulder, r_shoulder = kpts[5], kpts[6]
-                    l_wrist, r_wrist = kpts[9], kpts[10]
-
-                    if has_phone:
-                        action_id = 3
-                        action_name = 'Dung dien thoai'
-                        status_key = 'using_phone'
-                        box_color = (40, 40, 235)
-                    else:
-                        is_raising = False
-                        if l_wrist[2] > 0.4 and l_shoulder[2] > 0.4 and l_wrist[1] < l_shoulder[1]:
-                            is_raising = True
-                        if r_wrist[2] > 0.4 and r_shoulder[2] > 0.4 and r_wrist[1] < r_shoulder[1]:
-                            is_raising = True
-
-                        if is_raising:
-                            action_id = 0
-                            action_name = 'Gio tay'
-                            status_key = 'raising_hand'
-                            box_color = (46, 204, 113)
-                        else:
-                            avg_shoulder_y = (l_shoulder[1] + r_shoulder[1]) / 2 if (l_shoulder[2] > 0.3 and r_shoulder[2] > 0.3) else py1 + (py2 - py1) * 0.3
-                            head_drop = (nose[1] - avg_shoulder_y) if nose[2] > 0.3 else 0
-
-                            if head_drop > 25:
-                                action_id = 5
-                                action_name = 'Nam bo ban'
-                                status_key = 'bowing_head'
-                                box_color = (15, 196, 241)
-                            elif head_drop > 5:
-                                action_id = 4
-                                action_name = 'Guc dau'
-                                status_key = 'bowing_head'
-                                box_color = (34, 126, 230)
-                            else:
-                                has_book = False
-                                for (bk_box, _) in detected_books:
-                                    bk_cx = (bk_box[0] + bk_box[2]) / 2
-                                    bk_cy = (bk_box[1] + bk_box[3]) / 2
-                                    if (px1 - 20 <= bk_cx <= px2 + 20) and (py1 <= bk_cy <= py2 + 80):
-                                        has_book = True
-                                        break
-                                if has_book:
-                                    action_id = 1
-                                    action_name = 'Doc sach'
-                                    status_key = 'studying'
-                                    box_color = (219, 152, 52)
-                                else:
-                                    action_id = 2
-                                    action_name = 'Hoc bai'
-                                    status_key = 'studying'
-                                    box_color = (182, 89, 155)
-
-                    stats[action_id] = stats.get(action_id, 0) + 1
-
-                    if self.demo_mode and total == 1:
-                        target_seat = self.demo_seat_code
-                        demo_user_detected = True
-                        demo_user_action = action_name
-                        demo_user_status = status_key
-                        seat_label = f'[DEMO] {target_seat}: {action_name}'
-                    else:
-                        target_seat = map_coord_to_seat(norm_x, norm_y, self.total_rows, self.total_cols, self.seats_per_desk)
-                        seat_label = f'{target_seat}: {action_name}'
-
-                    seat_updates.append({
-                        'seatCode': target_seat,
-                        'status': status_key,
-                        'action': action_name
-                    })
-
-                    overlays.append({
-                        'box': (px1, py1, px2, py2),
-                        'color': box_color,
-                        'label': seat_label,
-                        'kpts': kpts
-                    })
-
-            if self.demo_mode and self.ambient_activity:
-                full_seat_updates = self._generate_ambient_seats(self.demo_seat_code, demo_user_status, demo_user_action)
-                display_total = len(full_seat_updates)
-                ambient_stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-                for su in full_seat_updates:
-                    act = su.get('action', '')
-                    if 'Dung dien thoai' in act: ambient_stats[3] += 1
-                    elif 'Gio tay' in act: ambient_stats[0] += 1
-                    elif 'Doc sach' in act: ambient_stats[1] += 1
-                    elif 'Viet bai' in act: ambient_stats[2] += 1
-                    elif 'Guc dau' in act: ambient_stats[4] += 1
-                    elif 'Nam bo ban' in act: ambient_stats[5] += 1
-                    else: ambient_stats[2] += 1
-
-                pos = ambient_stats.get(0, 0) + ambient_stats.get(1, 0) + ambient_stats.get(2, 0)
-                score = round((pos / max(1, display_total)) * 100, 1)
-
-                self.stats = ambient_stats
-                self.total_students = display_total
-                self.attention_score = score
-                self._sync_to_backend(full_seat_updates, ambient_stats, display_total, score)
-            else:
-                self.stats = stats
-                self.total_students = total
-                pos = stats.get(0, 0) + stats.get(1, 0) + stats.get(2, 0)
-                self.attention_score = round((pos / max(1, total)) * 100, 1) if total > 0 else 0.0
-                self._sync_to_backend(seat_updates, stats, total, self.attention_score)
+    def _ai_worker_loop(self):
+        """Worker thread lien tuc: chay nhan dien AI tren frame moi nhat voi do nhay cuc cao"""
+        while self.is_running:
+            self.ai_event.wait(timeout=0.08)
+            self.ai_event.clear()
+            if not self.is_running:
+                break
 
             with self.lock:
-                self.cached_overlays = overlays
-                self.cached_phones = detected_phones
-        except Exception:
-            pass
-        finally:
-            self.ai_busy = False
+                frame = None if self.latest_input_frame is None else self.latest_input_frame.copy()
+
+            if frame is None:
+                continue
+
+            try:
+                h, w, _ = frame.shape
+                # 1. Phat hien dien thoai va sach voi conf=0.18 (nhay hon rat nhieu)
+                obj_results = obj_model.predict(frame, classes=[67, 73], conf=0.18, imgsz=320, verbose=False)
+                detected_phones = []
+                detected_books = []
+                if len(obj_results) > 0 and obj_results[0].boxes is not None:
+                    for b in obj_results[0].boxes:
+                        cid = int(b.cls[0].item())
+                        box = b.xyxy[0].cpu().numpy().astype(int)
+                        conf = float(b.conf[0].item())
+                        if cid == 67:
+                            detected_phones.append((box, conf))
+                        elif cid == 73:
+                            detected_books.append((box, conf))
+
+                # 2. Phat hien dang nguoi voi conf=0.25 (bat keypoints nhay hon khi gio tay/cu dong)
+                pose_results = pose_model.predict(frame, conf=0.25, imgsz=320, verbose=False)
+                stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+                total = 0
+                seat_updates = []
+                overlays = []
+                demo_user_detected = False
+                demo_user_action = 'Hoc bai'
+                demo_user_status = 'studying'
+
+                if len(pose_results) > 0 and pose_results[0].boxes is not None and pose_results[0].keypoints is not None:
+                    p_boxes = pose_results[0].boxes.xyxy.cpu().numpy().astype(int)
+                    kpts_data = pose_results[0].keypoints.data.cpu().numpy()
+
+                    for i, p_box in enumerate(p_boxes):
+                        total += 1
+                        kpts = kpts_data[i]
+                        px1, py1, px2, py2 = p_box
+
+                        cx = (px1 + px2) / 2.0
+                        cy = (py1 + py2) / 2.0
+                        norm_x = cx / max(1, w)
+                        norm_y = cy / max(1, h)
+
+                        # Kiem tra dien thoai o gan nguoi / tay / mat ban
+                        has_phone = False
+                        for (ph_box, ph_conf) in detected_phones:
+                            ph_cx = (ph_box[0] + ph_box[2]) / 2
+                            ph_cy = (ph_box[1] + ph_box[3]) / 2
+                            if (px1 - 60 <= ph_cx <= px2 + 60) and (py1 <= ph_cy <= py2 + 80):
+                                has_phone = True
+                                break
+
+                        nose = kpts[0]
+                        l_shoulder, r_shoulder = kpts[5], kpts[6]
+                        l_elbow, r_elbow = kpts[7], kpts[8]
+                        l_wrist, r_wrist = kpts[9], kpts[10]
+
+                        if has_phone:
+                            action_id = 3
+                            action_name = 'Dung dien thoai'
+                            status_key = 'using_phone'
+                            box_color = (40, 40, 235)  # Do
+                        else:
+                            # Nhan dien Gio tay sieu nhay: gio thang hoac co tay ngang vai / cao hon khuyu tay
+                            is_raising = False
+                            if l_wrist[2] > 0.22:
+                                if (l_shoulder[2] > 0.22 and l_wrist[1] < l_shoulder[1] + 25) or (l_elbow[2] > 0.22 and l_wrist[1] < l_elbow[1]):
+                                    is_raising = True
+                            if r_wrist[2] > 0.22:
+                                if (r_shoulder[2] > 0.22 and r_wrist[1] < r_shoulder[1] + 25) or (r_elbow[2] > 0.22 and r_wrist[1] < r_elbow[1]):
+                                    is_raising = True
+
+                            if is_raising:
+                                action_id = 0
+                                action_name = 'Gio tay'
+                                status_key = 'raising_hand'
+                                box_color = (46, 204, 113)  # Xanh la
+                            else:
+                                avg_shoulder_y = (l_shoulder[1] + r_shoulder[1]) / 2 if (l_shoulder[2] > 0.2 and r_shoulder[2] > 0.2) else py1 + (py2 - py1) * 0.3
+                                head_drop = (nose[1] - avg_shoulder_y) if nose[2] > 0.2 else 0
+
+                                if head_drop > 20:
+                                    action_id = 5
+                                    action_name = 'Nam bo ban'
+                                    status_key = 'bowing_head'
+                                    box_color = (15, 196, 241)
+                                elif head_drop > 3:
+                                    action_id = 4
+                                    action_name = 'Guc dau'
+                                    status_key = 'bowing_head'
+                                    box_color = (34, 126, 230)
+                                else:
+                                    has_book = False
+                                    for (bk_box, _) in detected_books:
+                                        bk_cx = (bk_box[0] + bk_box[2]) / 2
+                                        bk_cy = (bk_box[1] + bk_box[3]) / 2
+                                        if (px1 - 30 <= bk_cx <= px2 + 30) and (py1 <= bk_cy <= py2 + 90):
+                                            has_book = True
+                                            break
+                                    if has_book:
+                                        action_id = 1
+                                        action_name = 'Doc sach'
+                                        status_key = 'studying'
+                                        box_color = (219, 152, 52)
+                                    else:
+                                        action_id = 2
+                                        action_name = 'Hoc bai'
+                                        status_key = 'studying'
+                                        box_color = (182, 89, 155)
+
+                        stats[action_id] = stats.get(action_id, 0) + 1
+
+                        if self.demo_mode and total == 1:
+                            target_seat = self.demo_seat_code
+                            demo_user_detected = True
+                            demo_user_action = action_name
+                            demo_user_status = status_key
+                            seat_label = f'[DEMO] {target_seat}: {action_name}'
+                        else:
+                            target_seat = map_coord_to_seat(norm_x, norm_y, self.total_rows, self.total_cols, self.seats_per_desk)
+                            seat_label = f'{target_seat}: {action_name}'
+
+                        seat_updates.append({
+                            'seatCode': target_seat,
+                            'status': status_key,
+                            'action': action_name
+                        })
+
+                        overlays.append({
+                            'box': (px1, py1, px2, py2),
+                            'color': box_color,
+                            'label': seat_label,
+                            'kpts': kpts
+                        })
+
+                if self.demo_mode and self.ambient_activity:
+                    full_seat_updates = self._generate_ambient_seats(self.demo_seat_code, demo_user_status, demo_user_action)
+                    display_total = len(full_seat_updates)
+                    ambient_stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+                    for su in full_seat_updates:
+                        act = su.get('action', '')
+                        if 'Dung dien thoai' in act: ambient_stats[3] += 1
+                        elif 'Gio tay' in act: ambient_stats[0] += 1
+                        elif 'Doc sach' in act: ambient_stats[1] += 1
+                        elif 'Viet bai' in act: ambient_stats[2] += 1
+                        elif 'Guc dau' in act: ambient_stats[4] += 1
+                        elif 'Nam bo ban' in act: ambient_stats[5] += 1
+                        else: ambient_stats[2] += 1
+
+                    pos = ambient_stats.get(0, 0) + ambient_stats.get(1, 0) + ambient_stats.get(2, 0)
+                    score = round((pos / max(1, display_total)) * 100, 1)
+
+                    self.stats = ambient_stats
+                    self.total_students = display_total
+                    self.attention_score = score
+                    self._sync_to_backend(full_seat_updates, ambient_stats, display_total, score)
+                else:
+                    self.stats = stats
+                    self.total_students = total
+                    pos = stats.get(0, 0) + stats.get(1, 0) + stats.get(2, 0)
+                    self.attention_score = round((pos / max(1, total)) * 100, 1) if total > 0 else 0.0
+                    self._sync_to_backend(seat_updates, stats, total, self.attention_score)
+
+                with self.lock:
+                    self.cached_overlays = overlays
+                    self.cached_phones = detected_phones
+            except Exception:
+                pass
 
     def _process_loop(self, loop_path=None):
         prev_time = time.time()
@@ -462,11 +487,10 @@ class VideoProcessor:
             self.fps = 1.0 / max(0.001, curr_time - prev_time)
             prev_time = curr_time
 
-            # Kich hoat AI chay ngam bat dong bo
-            if not self.ai_busy:
-                self.ai_busy = True
-                ai_frame = frame.copy()
-                threading.Thread(target=self._run_ai_worker, args=(ai_frame,), daemon=True).start()
+            # Day frame sang worker thread xu ly lien tuc
+            with self.lock:
+                self.latest_input_frame = frame
+            self.ai_event.set()
 
             # Ve bounding boxes va HUD da tinh toan len frame (< 1ms -> 30 FPS cuc muot)
             self._draw_cached_detections(frame)
