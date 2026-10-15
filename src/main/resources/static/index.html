@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hệ thống Phòng học Thông minh IoT & AI</title>
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg: #edf2f7; --card: #ffffff; --ink: #1a202c; --mute: #64748b;
+  --line: #e2e8f0; --pri: #0f6e8c; --pri-light: #e6f4f8; --warm: #d9822b;
+  --bad: #e53e3e; --bad-bg: #fff5f5; --ok: #2f855a; --ok-bg: #f0fff4;
+  --warn: #d69e2e; --purple: #805ad5; --blue: #3182ce;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: 'Be Vietnam Pro', system-ui, sans-serif; font-size: 15px; }
+header { background: #13222e; color: #fff; display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; padding: 12px 24px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+header h1 { font-size: 18px; margin: 0; margin-right: auto; font-weight: 700; letter-spacing: -0.3px; }
+select, input, button { font: inherit; }
+select, header a { background: #1f3645; color: #fff; border: 1px solid #3a5568; border-radius: 6px; padding: 7px 12px; text-decoration: none; font-size: 14px; }
+nav { display: flex; gap: 4px; padding: 0 24px; background: #fff; border-bottom: 1px solid var(--line); overflow-x: auto; }
+nav button { background: none; border: 0; padding: 14px 18px; cursor: pointer; color: var(--mute); font-weight: 600; border-bottom: 3px solid transparent; white-space: nowrap; transition: all .15s; }
+nav button:hover { color: var(--pri); }
+nav button.on { color: var(--pri); border-color: var(--pri); }
+main { max-width: 1300px; margin: 0 auto; padding: 22px 24px 60px; }
+.tab { display: none; }
+.tab.on { display: block; animation: fadeIn .2s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+.banner { padding: 16px 20px; border-radius: 8px; background: linear-gradient(135deg, var(--pri), #168aad); color: #fff; margin-bottom: 16px; box-shadow: 0 2px 6px rgba(15,110,140,0.25); }
+.banner.idle { background: #fff; color: var(--mute); border: 1px dashed #cbd5e1; box-shadow: none; }
+.banner b { font-size: 17px; }
+.alert { background: var(--bad-bg); border-left: 4px solid var(--bad); color: #9b2c2c; padding: 11px 16px; border-radius: 6px; margin-bottom: 12px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 16px; }
+.card { background: var(--card); border-radius: 8px; padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.03); }
+.card h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--mute); font-weight: 600; }
+.big { font-size: 38px; font-weight: 700; line-height: 1.1; }
+.big small { font-size: 18px; font-weight: 500; color: var(--mute); }
+.temp .big { color: var(--warm); }
+.hum .big { color: var(--pri); }
+.lux .big { color: #856404; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--bad); margin-right: 6px; }
+.dot.on { background: #38a169; box-shadow: 0 0 6px rgba(56,161,105,0.6); }
+
+.row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.row:last-child { border: 0; }
+.sw { position: relative; width: 50px; height: 26px; flex: none; }
+.sw input { opacity: 0; width: 100%; height: 100%; margin: 0; position: absolute; cursor: pointer; z-index: 2; }
+.sw i { position: absolute; inset: 0; background: #cbd5e1; border-radius: 13px; transition: .2s; }
+.sw i:after { content: ""; position: absolute; left: 3px; top: 3px; width: 20px; height: 20px; background: #fff; border-radius: 50%; transition: .2s; box-shadow: 0 1px 2px rgba(0,0,0,0.2); }
+.sw input:checked+i { background: var(--ok); }
+.sw input:checked+i:after { left: 27px; }
+.step { display: flex; align-items: center; gap: 10px; }
+.step button { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line); background: #fff; cursor: pointer; font-size: 16px; font-weight: 700; }
+.step button:hover { background: #f1f5f9; }
+.two { display: grid; grid-template-columns: minmax(300px, 1fr) 2fr; gap: 16px; }
+@media (max-width: 860px) { .two { grid-template-columns: 1fr; } }
+
+/* AI STREAM & SEATING MAP STYLES */
+.ai-stream-card { background: #0f172a; border-radius: 8px; padding: 16px; margin-bottom: 16px; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+.ai-stream-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.ai-stream-title { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.ai-stream-viewport { width: 100%; height: 460px; background: #000; border-radius: 6px; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; }
+.ai-stream-viewport img { width: 100%; height: 100%; object-fit: contain; }
+.ai-stream-controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; padding-top: 12px; border-top: 1px solid #1e293b; }
+.btn-cam { background: #0f766e; color: #fff; border: 0; border-radius: 6px; padding: 9px 16px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background .15s; }
+.btn-cam:hover { background: #0d9488; }
+.btn-stop { background: #be123c; color: #fff; border: 0; border-radius: 6px; padding: 9px 16px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background .15s; }
+.btn-stop:hover { background: #e11d48; }
+.btn-upload { background: #4338ca; color: #fff; border: 0; border-radius: 6px; padding: 9px 16px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: background .15s; }
+.btn-upload:hover { background: #4f46e5; }
+.stream-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #1e293b; color: #94a3b8; }
+.stream-badge.live { background: #064e3b; color: #6ee7b7; border: 1px solid #059669; }
+
+.ai-score-card { background: linear-gradient(135deg, #1e293b, #0f172a); color: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
+.ai-score-box { display: flex; align-items: center; gap: 20px; }
+.ai-gauge { width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; background: #0f766e; color: #fff; border: 4px solid #14b8a6; box-shadow: 0 0 15px rgba(20,184,166,0.3); }
+.ai-gauge.warn { background: #b45309; border-color: #f59e0b; box-shadow: 0 0 15px rgba(245,158,11,0.3); }
+.ai-gauge.bad { background: #991b1b; border-color: #ef4444; box-shadow: 0 0 15px rgba(239,68,68,0.3); }
+
+/* SEATING MAP STYLES - 5 hang x 4 day, moi ban 2 cho (L/R) */
+.seating-section { background: var(--card); border-radius: 8px; padding: 22px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); border: 1px solid var(--line); }
+.teacher-podium { background: linear-gradient(135deg, #e2e8f0, #cbd5e1); border: 2px dashed #94a3b8; border-radius: 6px; padding: 10px; text-align: center; font-weight: 700; color: #475569; margin-bottom: 20px; font-size: 14px; letter-spacing: 1px; }
+.desk-grid { display: grid; grid-template-columns: repeat(var(--desk-cols, 4), 1fr); gap: 16px 14px; }
+@media (max-width: 900px) { .desk-grid { grid-template-columns: repeat(2, 1fr) !important; } }
+@media (max-width: 500px) { .desk-grid { grid-template-columns: 1fr !important; } }
+.desk-unit { background: #f8fafc; border: 1.5px solid #cbd5e1; border-radius: 10px; overflow: hidden; transition: all .2s; }
+.desk-unit:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.desk-label { background: #e2e8f0; text-align: center; padding: 4px 8px; font-size: 11px; font-weight: 700; color: #64748b; letter-spacing: 0.5px; }
+.desk-seats { display: grid; grid-template-columns: 1fr 1fr; }
+.desk-seats.single { display: grid; grid-template-columns: 1fr; }
+.desk-divider { width: 1px; background: #e2e8f0; }
+.seat-box { padding: 10px; position: relative; transition: all .2s; cursor: pointer; min-height: 72px; }
+.seat-box:first-child { border-right: 1px solid #e2e8f0; }
+.desk-seats.single .seat-box:first-child { border-right: none; }
+.seat-box:hover { background: #edf2f7; }
+.seat-box.phone-alert { background: #fff5f5; animation: pulseRed 1.5s infinite; }
+@keyframes pulseRed { 0% { box-shadow: inset 0 0 0 0 rgba(229,62,62,0.3); } 70% { box-shadow: inset 0 0 0 4px rgba(229,62,62,0); } 100% { box-shadow: inset 0 0 0 0 rgba(229,62,62,0); } }
+.seat-box.raising { background: #f0fff4; }
+.seat-box.sleeping { background: #fffaf0; }
+.seat-box.empty { background: #fafafa; opacity: 0.6; }
+
+/* Solo Demo Styles */
+.demo-banner {
+  background: linear-gradient(135deg, #f0fdf4 0%, #eff6ff 100%);
+  border: 1.5px solid #86efac;
+  border-radius: 10px;
+  padding: 12px 18px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.demo-tag {
+  background: #166534;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.seat-box.is-demo-target {
+  outline: 3px solid #2563eb !important;
+  box-shadow: 0 0 16px rgba(37, 99, 235, 0.45) !important;
+  background: #eff6ff !important;
+  position: relative;
+}
+.seat-box.is-demo-target::after {
+  content: "🎯 DEMO";
+  position: absolute;
+  top: -8px;
+  left: 6px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.seat-side { font-size: 10px; font-weight: 700; color: #94a3b8; margin-bottom: 2px; }
+.seat-student-name { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+.seat-student-name.empty-slot { color: #94a3b8; font-weight: 500; font-style: italic; }
+.seat-status-pill { display: inline-flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: 600; margin-top: 4px; }
+.pill-studying { background: #eBF8FF; color: #2B6CB0; }
+.pill-raising { background: #C6F6D5; color: #22543D; }
+.pill-phone { background: #FED7D7; color: #9B2C2C; }
+.pill-bowing { background: #FEEBC8; color: #7B341E; }
+.pill-absent { background: #EDF2F7; color: #718096; }
+.seat-edit-btn { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 4px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; font-size: 11px; display: flex; align-items: center; justify-content: center; color: #64748b; opacity: 0; transition: opacity .15s; }
+.seat-box:hover .seat-edit-btn { opacity: 1; }
+.seat-edit-btn:hover { background: var(--pri-light); color: var(--pri); }
+.seat-stats { font-size: 10px; color: #94a3b8; margin-top: 2px; }
+
+/* Toolbar quan ly hoc sinh */
+.seat-toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 14px; }
+.seat-toolbar .btn-sm { padding: 7px 14px; border-radius: 6px; border: 0; font-size: 13px; font-weight: 600; cursor: pointer; transition: all .15s; display: flex; align-items: center; gap: 5px; }
+.btn-edit-mode { background: #f0fff4; color: #22543d; border: 1px solid #c6f6d5; }
+.btn-edit-mode:hover { background: #c6f6d5; }
+.btn-edit-mode.active { background: #22543d; color: #fff; }
+.btn-reset { background: #fff5f5; color: #9b2c2c; border: 1px solid #fed7d7; }
+.btn-reset:hover { background: #fed7d7; }
+.btn-import { background: #ebf8ff; color: #2b6cb0; border: 1px solid #bee3f8; }
+.btn-import:hover { background: #bee3f8; }
+
+/* Modal chinh sua hoc sinh */
+.modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+.modal-overlay.show { display: flex; }
+.modal-box { background: #fff; border-radius: 12px; padding: 28px 32px; max-width: 440px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.25); }
+.modal-box h3 { margin: 0 0 6px; font-size: 18px; }
+.modal-box .mut { margin-bottom: 18px; display: block; }
+.modal-box label { display: block; font-size: 13px; font-weight: 600; color: var(--mute); margin-bottom: 4px; }
+.modal-box input { width: 100%; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 6px; margin-bottom: 14px; font-size: 14px; background: #f8fafc; }
+.modal-box input:focus { outline: none; border-color: var(--pri); background: #fff; }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+.modal-actions .btn { padding: 10px 20px; }
+.modal-actions .btn-cancel { background: #e2e8f0; color: var(--ink); }
+.modal-actions .btn-cancel:hover { background: #cbd5e1; }
+.modal-actions .btn-danger { background: var(--bad); }
+.modal-actions .btn-danger:hover { background: #c53030; }
+
+.row-label { grid-column: 1 / -1; font-size: 12px; font-weight: 700; color: #64748b; padding: 6px 0 2px; border-bottom: 1px solid #e2e8f0; margin-bottom: -6px; }
+
+.wk { display: grid; grid-template-columns: repeat(7, minmax(130px, 1fr)); gap: 8px; overflow-x: auto; }
+.day { background: #fff; border-radius: 6px; padding: 10px; min-height: 120px; border: 1px solid var(--line); }
+.day.today { border-color: var(--pri); outline: 2px solid var(--pri); }
+.day h4 { margin: 0 0 8px; font-size: 14px; }
+.cls { background: #e3f1f6; border-left: 4px solid var(--pri); padding: 6px 8px; border-radius: 3px; margin-bottom: 6px; font-size: 13px; position: relative; }
+.cls .x { position: absolute; right: 4px; top: 2px; cursor: pointer; border: 0; background: none; color: var(--bad); font-size: 16px; }
+form.add { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; align-items: end; margin-bottom: 16px; }
+form.add label { font-size: 12px; font-weight: 600; color: var(--mute); display: block; margin-bottom: 4px; }
+form.add input, form.add select { width: 100%; padding: 8px; border: 1.5px solid var(--line); border-radius: 4px; background: #fff; color: var(--ink); }
+.btn { background: var(--pri); color: #fff; border: 0; border-radius: 6px; padding: 10px 16px; font-weight: 600; cursor: pointer; transition: background .15s; }
+.btn:hover { background: #0c566e; }
+table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 6px; overflow: hidden; border: 1px solid var(--line); }
+td, th { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
+th { background: #f8fafc; color: var(--mute); font-weight: 600; }
+#toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1a202c; color: #fff; padding: 11px 22px; border-radius: 6px; display: none; z-index: 999; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
+.mut { color: var(--mute); font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🏫 Smart Classroom IoT & AI</h1>
+  <select id="room" aria-label="Chọn phòng học"></select>
+  <span><span class="dot" id="dot"></span><span id="onl">...</span></span>
+  <span id="who" class="mut" style="color:#cbd5e1"></span>
+  <a href="/logout">Đăng xuất</a>
+</header>
+
+<nav>
+  <button class="on" data-t="mon">📊 Giám sát & Điều khiển</button>
+  <button data-t="ai">🤖 Giám sát AI (Hành vi & Chỗ ngồi)</button>
+  <button data-t="sch">📅 Lịch học</button>
+  <button data-t="log">📝 Nhật ký hoạt động</button>
+</nav>
+
+<main>
+<!-- TAB 1: GIÁM SÁT & ĐIỀU KHIỂN THIẾT BỊ -->
+<section class="tab on" id="mon">
+  <div id="alerts"></div>
+  <div class="banner idle" id="banner"></div>
+  <div class="grid">
+    <div class="card temp"><h3>Nhiệt độ</h3><div class="big"><span id="t">--</span><small> °C</small></div></div>
+    <div class="card hum"><h3>Độ ẩm</h3><div class="big"><span id="h">--</span><small> %</small></div></div>
+    <div class="card lux"><h3>Ánh sáng</h3><div class="big"><span id="l">--</span><small> lux</small></div></div>
+    <div class="card"><h3>Hiện diện</h3><div class="big" style="font-size:26px" id="occ">--</div><div class="mut" id="seen"></div></div>
+  </div>
+  <div class="two">
+    <div class="card">
+      <h3>Điều khiển thiết bị</h3>
+      <div class="row">
+        <div><b>Chế độ tự động</b><div class="mut">Tự bật/tắt theo lịch học, cảm biến & phát hiện người</div></div>
+        <label class="sw"><input type="checkbox" id="auto"><i></i></label>
+      </div>
+      <div class="row"><b>Đèn chiếu sáng</b><label class="sw"><input type="checkbox" id="light"><i></i></label></div>
+      <div class="row"><b>Quạt thông gió</b><label class="sw"><input type="checkbox" id="fan"><i></i></label></div>
+      <div class="row"><b>Điều hòa nhiệt độ</b><label class="sw"><input type="checkbox" id="ac"><i></i></label></div>
+      <div class="row">
+        <span>Nhiệt độ đặt điều hòa</span>
+        <div class="step"><button id="dn" aria-label="Giảm">-</button><b id="act">26</b>°C<button id="up" aria-label="Tăng">+</button></div>
+      </div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3 style="margin:0">Biểu đồ Môi trường</h3>
+        <select id="hrs"><option value="1">1 giờ qua</option><option value="6">6 giờ qua</option><option value="24">24 giờ qua</option></select>
+      </div>
+      <div style="height:270px"><canvas id="chart"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- TAB 2: GIÁM SÁT HÀNH VI & SƠ ĐỒ CHỖ NGỒI (YOLO11 POSE + OBJECT) -->
+<section class="tab" id="ai">
+  <!-- KHUNG PHÁT LUỒNG VIDEO & ĐIỀU KHIỂN WEBCAM / UPLOAD -->
+  <div class="ai-stream-card">
+    <div class="ai-stream-header">
+      <div class="ai-stream-title">
+        <span>📹 Luồng Camera Trực tiếp (YOLO11 Detection & Pose)</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <span class="stream-badge" id="streamBadge"><span class="dot"></span> Camera chờ</span>
+      </div>
+    </div>
+
+    <div class="ai-stream-viewport">
+      <img id="aiStreamImg" src="http://localhost:5000/video_feed" alt="Video stream từ AI Server">
+    </div>
+
+    <div class="ai-stream-controls">
+      <button class="btn-cam" id="btnWebcam" onclick="toggleWebcam()">
+        <span>🟢 Bật Webcam</span>
+      </button>
+      <button class="btn-stop" id="btnStop" onclick="stopStream()" style="display:none">
+        <span>⏹ Dừng Camera / Video</span>
+      </button>
+
+      <input type="file" id="videoFileInput" accept="video/mp4,video/avi,video/mkv,video/mov" style="display:none" onchange="handleVideoUpload(this)">
+      <button class="btn-upload" onclick="document.getElementById('videoFileInput').click()">
+        <span>📁 Tải lên Video lớp học</span>
+      </button>
+
+      <span class="mut" style="color:#94a3b8;font-size:12px;margin-left:auto" id="streamInfo">
+        AI Engine: YOLO11 Pose + COCO Objects (Port 5000)
+      </span>
+    </div>
+  </div>
+
+  <div class="ai-score-card">
+    <div class="ai-score-box">
+      <div class="ai-gauge" id="ai-gauge"><span id="ai-score">0%</span></div>
+      <div>
+        <div style="font-size:20px;font-weight:700">Mức độ tập trung của lớp học</div>
+        <div style="color:#94a3b8;font-size:14px;margin-top:2px" id="ai-status-desc">Đang đồng bộ dữ liệu từ Camera AI YOLO11...</div>
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:12px;color:#94a3b8">Cập nhật lần cuối</div>
+      <div style="font-size:15px;font-weight:600" id="ai-last-time">Chưa có dữ liệu</div>
+    </div>
+  </div>
+
+  <!-- PHÂN HỆ SƠ ĐỒ CHỖ NGỒI HỌC SINH -->
+  <div class="seating-section">
+    <!-- Toolbar Che do Demo Thuyet trinh qua Laptop Webcam -->
+    <div class="demo-banner">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span class="demo-tag">🎯 CHẾ ĐỘ THUYẾT TRÌNH (SOLO DEMO)</span>
+        <span style="font-size:13px;font-weight:600;color:var(--ink)">Webcam laptop điều khiển:</span>
+        <select id="selDemoSeat" onchange="changeDemoSeat(this.value)" style="padding:5px 12px;border-radius:6px;border:1.5px solid #93c5fd;font-weight:700;color:#1e40af;background:#fff;cursor:pointer">
+        </select>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;color:#1e293b;font-weight:500">
+          <input type="checkbox" id="chkAmbient" checked onchange="toggleAmbient(this.checked)">
+          Mô phỏng cả lớp học sôi nổi (Ambient)
+        </label>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-sm btn-import" onclick="openLayoutModal()">📐 Quy mô lớp học</button>
+      </div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;flex-wrap:wrap;gap:10px">
+      <div>
+        <h3 style="margin:0;font-size:16px;color:var(--ink);font-weight:700" id="seatingSectionTitle">🗺️ Sơ đồ Chỗ ngồi Lớp học</h3>
+        <div class="mut" style="margin-top:2px">Nhấn vào từng chỗ ngồi để xem chi tiết, đổi tên học sinh hoặc chọn làm ghế Demo</div>
+      </div>
+      <div style="display:flex;gap:8px;font-size:12px;flex-wrap:wrap;align-items:center">
+        <span style="display:inline-flex;align-items:center;gap:4px"><span class="dot on"></span> Học bài</span>
+        <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:var(--ok);border-radius:50%"></span> Phát biểu</span>
+        <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:var(--bad);border-radius:50%"></span> Dùng ĐT</span>
+        <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:var(--warn);border-radius:50%"></span> Gục đầu</span>
+        <span style="display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;background:#cbd5e1;border-radius:50%"></span> Trống</span>
+      </div>
+    </div>
+
+    <!-- Toolbar quan ly -->
+    <div class="seat-toolbar">
+      <button class="btn-sm btn-edit-mode" id="btnEditMode" onclick="toggleEditMode()">✏️ Chỉnh sửa học sinh</button>
+      <button class="btn-sm btn-reset" id="btnResetSeats" onclick="resetAllSeats()" style="display:none">🗑️ Xóa toàn bộ danh sách</button>
+      <span class="mut" id="seatSummary" style="margin-left:auto"></span>
+    </div>
+
+    <div class="teacher-podium">👨‍🏫 BÀN GIẢNG VIÊN & BẢNG LỚP HỌC (PHÍA TRƯỚC)</div>
+
+    <div id="seatGrid">
+      <!-- Dynamic Desk + Seat Boxes -->
+    </div>
+  </div>
+
+  <div class="two">
+    <div class="card">
+      <h3>Tỷ lệ phân bố hành vi hiện tại</h3>
+      <div style="height:280px;position:relative"><canvas id="aiDoughnutChart"></canvas></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <h3 style="margin:0">Diễn biến mức độ tập trung (%)</h3>
+        <select id="ai-hrs"><option value="1">1 giờ qua</option><option value="6">6 giờ qua</option></select>
+      </div>
+      <div style="height:270px"><canvas id="aiHistoryChart"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- TAB 3: THỜI KHÓA BIỂU -->
+<section class="tab" id="sch">
+  <form class="add" id="f">
+    <div><label>Thứ</label><select id="fd"><option value="1">Thứ 2</option><option value="2">Thứ 3</option><option value="3">Thứ 4</option><option value="4">Thứ 5</option><option value="5">Thứ 6</option><option value="6">Thứ 7</option><option value="7">Chủ nhật</option></select></div>
+    <div><label>Bắt đầu</label><input type="time" id="fs" value="07:00" required></div>
+    <div><label>Kết thúc</label><input type="time" id="fe" value="09:00" required></div>
+    <div><label>Môn học</label><input id="fj" required placeholder="Tên môn học..."></div>
+    <div><label>Giảng viên</label><input id="ft" placeholder="Tên giảng viên..."></div>
+    <button class="btn" type="submit">Thêm lịch</button>
+  </form>
+  <div class="wk" id="wk"></div>
+  <p class="mut" style="margin-top:14px">Đèn, quạt, điều hòa ở chế độ tự động sẽ bật khi tiết học bắt đầu và tắt khi phòng trống quá 10 phút. Chỉ quản trị viên được xóa lịch.</p>
+</section>
+
+<!-- TAB 4: NHẬT KÝ HOẠT ĐỘNG -->
+<section class="tab" id="log">
+  <table>
+    <thead><tr><th>Thời gian</th><th>Người/Nguồn</th><th>Hoạt động</th></tr></thead>
+    <tbody id="lb"></tbody>
+  </table>
+</section>
+</main>
+
+<!-- MODAL CHINH SUA HOC SINH -->
+<div class="modal-overlay" id="seatModal">
+  <div class="modal-box">
+    <h3 id="modalTitle">Chỉnh sửa chỗ ngồi</h3>
+    <span class="mut" id="modalSeatInfo"></span>
+    <div style="margin-top:16px">
+      <label>Mã học sinh</label>
+      <input id="modalStudentCode" placeholder="VD: HS01, HS02...">
+      <label>Họ và tên học sinh</label>
+      <input id="modalStudentName" placeholder="VD: Nguyễn Văn An">
+    </div>
+    <div class="modal-actions" style="flex-wrap:wrap">
+      <button class="btn" style="background:#2563eb" onclick="setTargetDemoSeatFromModal()">🎯 Chọn làm bàn Demo</button>
+      <button class="btn btn-danger" id="modalBtnRemove" onclick="removeStudentFromSeat()">Xóa khỏi chỗ</button>
+      <button class="btn btn-cancel" onclick="closeSeatModal()">Hủy</button>
+      <button class="btn" onclick="saveSeatStudent()">💾 Lưu</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL CAU HINH QUY MO PHONG HOC -->
+<div class="modal-overlay" id="layoutModal">
+  <div class="modal-box" style="max-width:480px">
+    <h3>📐 Cấu hình Quy mô Phòng học</h3>
+    <span class="mut">Tự do tùy chỉnh số hàng, dãy bàn và loại bàn cho mọi lớp học thực tế.</span>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px">
+      <div>
+        <label>Số hàng bàn</label>
+        <input type="number" id="inputRows" min="1" max="10" value="5">
+      </div>
+      <div>
+        <label>Số dãy bàn</label>
+        <input type="number" id="inputCols" min="1" max="6" value="4">
+      </div>
+    </div>
+    <div style="margin-top:10px">
+      <label>Kiểu bàn học</label>
+      <select id="selectSeatsPerDesk" style="width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:6px;background:#f8fafc;font-size:14px">
+        <option value="2">Bàn đôi (2 học sinh / bàn - Phổ thông)</option>
+        <option value="1">Bàn đơn (1 học sinh / bàn - Phòng thi / ĐH)</option>
+      </select>
+    </div>
+    <div style="margin-top:14px">
+      <label style="margin-bottom:6px">Chọn nhanh mẫu cấu hình (Presets):</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn-sm" type="button" onclick="setPreset(5, 4, 2)" style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd">Chuẩn 40 HS (5x4)</button>
+        <button class="btn-sm" type="button" onclick="setPreset(4, 3, 2)" style="background:#fef3c7;color:#92400e;border:1px solid #fde68a">Lớp nhỏ 24 HS (4x3)</button>
+        <button class="btn-sm" type="button" onclick="setPreset(2, 2, 2)" style="background:#dcfce7;color:#166534;border:1px solid #bbf7d0">Demo nhanh 8 HS (2x2)</button>
+        <button class="btn-sm" type="button" onclick="setPreset(4, 4, 1)" style="background:#f3e8ff;color:#6b21a8;border:1px solid #e9d5ff">Bàn đơn 16 HS (4x4)</button>
+      </div>
+    </div>
+    <div class="modal-actions" style="margin-top:22px">
+      <button class="btn btn-cancel" onclick="closeLayoutModal()">Hủy</button>
+      <button class="btn" onclick="saveRoomLayout()">💾 Áp dụng quy mô mới</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status"></div>
+
+<script>
+const $ = s => document.getElementById(s);
+const DAYS = ['', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'Chủ nhật'];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const AI_SERVER = 'http://localhost:5000';
+let rid = 1, currentRoomCode = 'A101', envChart, aiDoughnutChart, aiHistoryChart;
+let editMode = false;
+let currentEditSeat = null;  // { id, seatCode, studentCode, studentName }
+let seatDataCache = [];
+
+function toast(m) {
+  const t = $('toast');
+  if (!t) return;
+  t.textContent = m;
+  t.style.display = 'block';
+  clearTimeout(t._h);
+  t._h = setTimeout(() => { t.style.display = 'none'; }, 3000);
+}
+
+async function api(u, o = {}) {
+  const r = await fetch(u, {
+    method: o.method || 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    body: o.body ? JSON.stringify(o.body) : undefined
+  });
+  if (r.status === 401) { location = '/login.html'; throw new Error('401'); }
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    throw new Error(e.message || (r.status === 403 ? 'Bạn không có quyền thực hiện thao tác này' : 'Lỗi ' + r.status));
+  }
+  return r.status === 204 ? null : r.json();
+}
+
+let currentDemoSeatCode = 'B1-D1L';
+let soloDemoActive = true;
+let currentRoomLayout = { rowCount: 5, colCount: 4, seatsPerDesk: 2 };
+
+async function toggleWebcam() {
+  try {
+    toast('Đang khởi động Webcam...');
+    const res = await fetch(AI_SERVER + '/api/webcam/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        source: 0,
+        room: currentRoomCode,
+        demoMode: soloDemoActive,
+        demoSeat: currentDemoSeatCode
+      })
+    }).then(r => r.json());
+
+    if (res.success) {
+      toast('Đã bật Webcam thành công! (Liên kết: ' + currentDemoSeatCode + ')');
+      const img = $('aiStreamImg');
+      if (img) img.src = AI_SERVER + '/video_feed?t=' + Date.now();
+      checkAIStatus();
+    } else {
+      toast('Không thể mở Webcam: ' + res.message);
+    }
+  } catch (err) {
+    toast('Chưa khởi động AI Server! Hãy chạy file ai_server.py.');
+  }
+}
+
+async function stopStream() {
+  try {
+    await fetch(AI_SERVER + '/api/webcam/stop', { method: 'POST' });
+    toast('Đã dừng Camera / Video');
+    const img = $('aiStreamImg');
+    if (img) img.src = AI_SERVER + '/video_feed?t=' + Date.now();
+    checkAIStatus();
+  } catch (err) {
+    toast('Không thể kết nối AI Server');
+  }
+}
+
+async function handleVideoUpload(input) {
+  if (!input.files || input.files.length === 0) return;
+  const file = input.files[0];
+  const formData = new FormData();
+  formData.append('video', file);
+  formData.append('room', currentRoomCode);
+
+  toast('Đang tải lên và xử lý video: ' + file.name + '...');
+  try {
+    const res = await fetch(AI_SERVER + '/api/video/upload', {
+      method: 'POST',
+      body: formData
+    }).then(r => r.json());
+
+    if (res.success) {
+      toast('Đang phân tích video: ' + file.name);
+      const img = $('aiStreamImg');
+      if (img) img.src = AI_SERVER + '/video_feed?t=' + Date.now();
+      checkAIStatus();
+    } else {
+      toast('Lỗi phân tích video: ' + res.message);
+    }
+  } catch (err) {
+    toast('Lỗi tải video lên AI Server. Hãy kiểm tra ai_server.py!');
+  }
+  input.value = '';
+}
+
+async function checkAIStatus() {
+  try {
+    const s = await fetch(AI_SERVER + '/api/status').then(r => r.json());
+    const badge = $('streamBadge');
+    const btnW = $('btnWebcam');
+    const btnS = $('btnStop');
+    if (s.running) {
+      if (badge) {
+        badge.className = 'stream-badge live';
+        const demoNote = s.demoMode ? (' [Demo: ' + (s.demoSeat || '') + ']') : '';
+        badge.innerHTML = '<span class="dot on"></span> Đang chạy (' + (s.mode === 'webcam' ? 'Webcam' : 'Video') + ' - ' + s.fps + ' FPS)' + demoNote;
+      }
+      if (btnW) btnW.style.display = 'none';
+      if (btnS) btnS.style.display = 'inline-flex';
+    } else {
+      if (badge) {
+        badge.className = 'stream-badge';
+        badge.innerHTML = '<span class="dot"></span> Camera chờ';
+      }
+      if (btnW) btnW.style.display = 'inline-flex';
+      if (btnS) btnS.style.display = 'none';
+    }
+  } catch (e) {
+    const badge = $('streamBadge');
+    if (badge) {
+      badge.className = 'stream-badge';
+      badge.innerHTML = '<span class="dot"></span> AI Server ngoại tuyến';
+    }
+  }
+}
+
+// ===================== SƠ ĐỒ CHỖ NGỒI VÀ ĐIỀU KHIỂN DEMO =====================
+
+function updateDemoDropdown(list) {
+  const sel = $('selDemoSeat');
+  if (!sel) return;
+  const oldVal = sel.value || currentDemoSeatCode;
+  sel.innerHTML = '';
+  list.forEach(st => {
+    if (st.studentName && st.studentName.trim()) {
+      const opt = document.createElement('option');
+      opt.value = st.seatCode;
+      opt.textContent = `${st.seatCode} — ${st.studentName} (Hàng ${st.rowNum}, Dãy ${st.colNum})`;
+      sel.appendChild(opt);
+    }
+  });
+  if (oldVal && sel.querySelector(`option[value="${oldVal}"]`)) {
+    sel.value = oldVal;
+    currentDemoSeatCode = oldVal;
+  } else if (sel.options.length > 0) {
+    currentDemoSeatCode = sel.options[0].value;
+  }
+}
+
+async function changeDemoSeat(seatCode) {
+  currentDemoSeatCode = seatCode;
+  renderSeatGrid(seatDataCache);
+  try {
+    await fetch(AI_SERVER + '/api/demo_mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ demoSeat: seatCode, demoMode: true })
+    });
+    toast('🎯 Đã liên kết Webcam với chỗ: ' + seatCode);
+  } catch (e) {}
+}
+
+async function toggleAmbient(enabled) {
+  try {
+    await fetch(AI_SERVER + '/api/demo_mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ambient: enabled })
+    });
+    toast(enabled ? '🌟 Đã bật mô phỏng cả lớp học' : 'Đã tắt mô phỏng cả lớp');
+  } catch (e) {}
+}
+
+function setTargetDemoSeatFromModal() {
+  if (!currentEditSeat) return;
+  changeDemoSeat(currentEditSeat.seatCode);
+  if ($('selDemoSeat')) $('selDemoSeat').value = currentEditSeat.seatCode;
+  closeSeatModal();
+}
+
+function openLayoutModal() {
+  $('inputRows').value = currentRoomLayout.rowCount || 5;
+  $('inputCols').value = currentRoomLayout.colCount || 4;
+  $('selectSeatsPerDesk').value = currentRoomLayout.seatsPerDesk || 2;
+  $('layoutModal').classList.add('show');
+}
+
+function closeLayoutModal() {
+  $('layoutModal').classList.remove('show');
+}
+
+function setPreset(rows, cols, perDesk) {
+  $('inputRows').value = rows;
+  $('inputCols').value = cols;
+  $('selectSeatsPerDesk').value = perDesk;
+}
+
+async function saveRoomLayout() {
+  const rows = parseInt($('inputRows').value) || 5;
+  const cols = parseInt($('inputCols').value) || 4;
+  const perDesk = parseInt($('selectSeatsPerDesk').value) || 2;
+
+  try {
+    toast('Đang áp dụng quy mô phòng học mới...');
+    const res = await api('/api/rooms/' + rid + '/layout', {
+      method: 'POST',
+      body: { rowCount: rows, colCount: cols, seatsPerDesk: perDesk }
+    });
+    currentRoomLayout = { rowCount: rows, colCount: cols, seatsPerDesk: perDesk };
+    const initialDemoSeat = (perDesk === 1 ? 'B1-D1' : 'B1-D1L');
+    currentDemoSeatCode = initialDemoSeat;
+    fetch(AI_SERVER + '/api/demo_mode', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        rows: rows,
+        cols: cols,
+        seatsPerDesk: perDesk,
+        demoSeat: initialDemoSeat
+      })
+    }).catch(() => {});
+    loadSeats();
+  } catch (e) {
+    toast('Lỗi cập nhật: ' + e.message);
+  }
+}
+
+function toggleEditMode() {
+  editMode = !editMode;
+  const btn = $('btnEditMode');
+  const btnReset = $('btnResetSeats');
+  if (btn) {
+    btn.classList.toggle('active', editMode);
+    btn.innerHTML = editMode ? '✅ Xong chỉnh sửa' : '✏️ Chỉnh sửa học sinh';
+  }
+  if (btnReset) btnReset.style.display = editMode ? 'inline-flex' : 'none';
+  renderSeatGrid(seatDataCache);
+}
+
+function openSeatModal(seat) {
+  currentEditSeat = seat;
+  $('modalTitle').textContent = 'Chỉnh sửa chỗ ngồi ' + seat.seatCode;
+  const sideText = (seat.side === 'L' ? 'Trái' : seat.side === 'R' ? 'Phải' : 'Bàn đơn');
+  $('modalSeatInfo').textContent = 'Hàng ' + seat.rowNum + ' - Dãy ' + seat.colNum + ' - Vị trí: ' + sideText;
+  $('modalStudentCode').value = seat.studentCode || '';
+  $('modalStudentName').value = seat.studentName || '';
+  $('modalBtnRemove').style.display = (seat.studentName && seat.studentName.trim()) ? 'inline-flex' : 'none';
+  $('seatModal').classList.add('show');
+  setTimeout(() => $('modalStudentCode').focus(), 100);
+}
+
+function closeSeatModal() {
+  $('seatModal').classList.remove('show');
+  currentEditSeat = null;
+}
+
+async function saveSeatStudent() {
+  if (!currentEditSeat) return;
+  const code = $('modalStudentCode').value.trim();
+  const name = $('modalStudentName').value.trim();
+
+  try {
+    await api('/api/rooms/' + rid + '/seats/' + currentEditSeat.id, {
+      method: 'PUT',
+      body: { studentCode: code, studentName: name }
+    });
+    toast(name ? ('Đã gán ' + name + ' vào chỗ ' + currentEditSeat.seatCode) : ('Đã xóa học sinh khỏi chỗ ' + currentEditSeat.seatCode));
+    closeSeatModal();
+    loadSeats();
+  } catch (e) {
+    toast('Lỗi: ' + e.message);
+  }
+}
+
+async function removeStudentFromSeat() {
+  if (!currentEditSeat) return;
+  if (!confirm('Xóa học sinh ' + (currentEditSeat.studentName || '') + ' khỏi chỗ ' + currentEditSeat.seatCode + '?')) return;
+
+  try {
+    await api('/api/rooms/' + rid + '/seats/' + currentEditSeat.id, {
+      method: 'PUT',
+      body: { studentCode: '', studentName: '' }
+    });
+    toast('Đã xóa học sinh khỏi chỗ ' + currentEditSeat.seatCode);
+    closeSeatModal();
+    loadSeats();
+  } catch (e) {
+    toast('Lỗi: ' + e.message);
+  }
+}
+
+async function resetAllSeats() {
+  if (!confirm('⚠️ Xác nhận XÓA TOÀN BỘ danh sách học sinh trong sơ đồ chỗ ngồi?\nThao tác này không thể hoàn tác.')) return;
+
+  try {
+    await api('/api/rooms/' + rid + '/seats/reset', { method: 'POST' });
+    toast('Đã xóa toàn bộ danh sách học sinh');
+    loadSeats();
+  } catch (e) {
+    toast('Lỗi: ' + e.message);
+  }
+}
+
+function renderSeatGrid(list) {
+  const container = $('seatGrid');
+  if (!container) return;
+
+  if (!list || list.length === 0) {
+    container.innerHTML = '<div class="mut">Chưa có dữ liệu sơ đồ chỗ ngồi cho phòng này. Nhấn "Quy mô lớp học" để khởi tạo.</div>';
+    return;
+  }
+
+  updateDemoDropdown(list);
+
+  // Nhom theo hang
+  const rows = {};
+  list.forEach(st => {
+    if (!rows[st.rowNum]) rows[st.rowNum] = {};
+    if (!rows[st.rowNum][st.colNum]) rows[st.rowNum][st.colNum] = {};
+    rows[st.rowNum][st.colNum][st.side || 'C'] = st;
+  });
+
+  const rowNums = Object.keys(rows).map(Number).sort((a,b)=>a-b);
+  let html = '';
+
+  // Tong hop so lieu
+  let totalStudents = 0, totalPresent = 0, maxCol = 1;
+  list.forEach(st => {
+    if (st.colNum > maxCol) maxCol = st.colNum;
+    if (st.studentName && st.studentName.trim()) totalStudents++;
+    if (st.currentStatus && st.currentStatus !== 'absent' && st.studentName) totalPresent++;
+  });
+
+  document.documentElement.style.setProperty('--desk-cols', maxCol);
+
+  const totalSeats = list.length;
+  const isSingleDesk = (currentRoomLayout.seatsPerDesk === 1);
+  if ($('seatingSectionTitle')) {
+    $('seatingSectionTitle').textContent = `🗺️ Sơ đồ Chỗ ngồi Lớp học (${rowNums.length} hàng × ${maxCol} dãy = ${totalSeats} chỗ)`;
+  }
+  if ($('seatSummary')) {
+    $('seatSummary').textContent = `Tổng: ${totalStudents}/${totalSeats} HS | Có mặt: ${totalPresent}`;
+  }
+
+  for (const rowNum of rowNums) {
+    html += '<div class="row-label">Hàng ' + rowNum + '</div>';
+    html += '<div class="desk-grid">';
+    const colNums = Object.keys(rows[rowNum]).map(Number).sort((a,b)=>a-b);
+    for (const colNum of colNums) {
+      const deskData = rows[rowNum][colNum];
+      html += '<div class="desk-unit">';
+      html += '<div class="desk-label">Bàn ' + rowNum + '-' + colNum + '</div>';
+
+      if (isSingleDesk || deskData['C']) {
+        html += '<div class="desk-seats single">';
+        html += renderSeatCell(deskData['C'] || deskData['L'], 'Bàn đơn');
+        html += '</div>';
+      } else {
+        html += '<div class="desk-seats">';
+        html += renderSeatCell(deskData['L'], 'Trái');
+        html += renderSeatCell(deskData['R'], 'Phải');
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+
+  container.innerHTML = html;
+}
+
+function renderSeatCell(st, sideLabel) {
+  if (!st) return '<div class="seat-box empty"><div class="seat-side">' + sideLabel + '</div><div class="seat-student-name empty-slot">N/A</div></div>';
+
+  const hasStudent = st.studentName && st.studentName.trim();
+  const isDemo = (st.seatCode === currentDemoSeatCode);
+  let cardClass = 'seat-box';
+  if (isDemo) cardClass += ' is-demo-target';
+
+  let pillClass = 'pill-absent';
+  let icon = '⬜';
+  let actionText = 'Trống';
+
+  if (!hasStudent) {
+    cardClass += ' empty';
+  } else {
+    if (st.currentStatus === 'using_phone') {
+      cardClass += ' phone-alert'; pillClass = 'pill-phone'; icon = '📱'; actionText = st.currentAction || 'Dùng ĐT';
+    } else if (st.currentStatus === 'raising_hand') {
+      cardClass += ' raising'; pillClass = 'pill-raising'; icon = '🙋'; actionText = st.currentAction || 'Giơ tay';
+    } else if (st.currentStatus === 'bowing_head') {
+      cardClass += ' sleeping'; pillClass = 'pill-bowing'; icon = '🙇'; actionText = st.currentAction || 'Gục đầu';
+    } else if (st.currentStatus === 'studying' || st.currentStatus === 'present') {
+      pillClass = 'pill-studying'; icon = '📖'; actionText = st.currentAction || 'Học bài';
+    } else {
+      pillClass = 'pill-absent'; icon = '❌'; actionText = 'Vắng mặt';
+    }
+  }
+
+  const editBtn = '<button class="seat-edit-btn" style="opacity:' + (editMode ? '1' : '0.6') + '" onclick="event.stopPropagation();openSeatModal(' + JSON.stringify(st).replace(/"/g, '&quot;') + ')">✎</button>';
+
+  const clickAction = 'openSeatModal(' + JSON.stringify(st).replace(/"/g, '&quot;') + ')';
+
+  return '<div class="' + cardClass + '" onclick="' + clickAction + '">'
+    + editBtn
+    + '<div class="seat-side">' + sideLabel + ' (' + esc(st.seatCode) + ')' + (isDemo ? ' ⭐' : '') + '</div>'
+    + '<div class="seat-student-name' + (hasStudent ? '' : ' empty-slot') + '">'
+    + (hasStudent ? esc(st.studentName) : '— Trống —')
+    + '</div>'
+    + (hasStudent
+      ? '<div class="seat-status-pill ' + pillClass + '">' + icon + ' ' + esc(actionText) + '</div>'
+        + '<div class="seat-stats">PB: ' + (st.participationCount || 0) + ' | VP: ' + (st.violationCount || 0) + '</div>'
+      : '')
+    + '</div>';
+}
+
+async function loadSeats() {
+  try {
+    const [list, layout] = await Promise.all([
+      api('/api/rooms/' + rid + '/seats'),
+      api('/api/rooms/' + rid + '/layout').catch(() => null)
+    ]);
+    if (layout) {
+      currentRoomLayout = layout;
+    }
+    seatDataCache = list || [];
+    renderSeatGrid(seatDataCache);
+  } catch (e) {
+    console.error('loadSeats error:', e);
+  }
+}
+
+
+
+// ===================== CÁC HÀM CŨ GIỮ NGUYÊN =====================
+
+async function refresh() {
+  try {
+    const d = await api('/api/rooms/' + rid + '/status');
+    const r = d.reading, s = d.state, b = d.latestBehavior;
+
+    if ($('t')) $('t').textContent = r ? r.temperature.toFixed(1) : '--';
+    if ($('h')) $('h').textContent = r ? r.humidity.toFixed(0) : '--';
+    if ($('l')) $('l').textContent = r ? Math.round(r.lux) : '--';
+    if ($('ldesc')) $('ldesc').textContent = r ? (r.lux < 300 ? 'Thiếu sáng' : r.lux > 700 ? 'Rất sáng' : 'Đủ sáng') : '';
+    if ($('occ')) $('occ').textContent = d.occupied ? 'Có người' : 'Không có người';
+    if ($('seen')) $('seen').textContent = s.lastSeen ? 'Cập nhật ' + new Date(s.lastSeen).toLocaleTimeString('vi-VN') : 'Chưa có dữ liệu';
+    if ($('dot')) $('dot').className = 'dot' + (d.online ? ' on' : '');
+    if ($('onl')) $('onl').textContent = d.online ? 'ESP32 trực tuyến' : 'ESP32 ngoại tuyến';
+
+    for (const k of ['auto', 'light', 'fan', 'ac']) {
+      if ($(k)) $(k).checked = s[k];
+    }
+    if ($('act')) $('act').textContent = s.acTemp;
+
+    if ($('alerts')) $('alerts').innerHTML = d.alerts.map(a => '<div class="alert">' + esc(a) + '</div>').join('');
+    const c = d.currentClass, banner = $('banner');
+    if (banner) {
+      banner.className = 'banner' + (c ? '' : ' idle');
+      banner.innerHTML = c ? '<b>' + esc(c.subject) + '</b> đang diễn ra — ' + esc(c.teacher || '') + ' — ' + c.startTime.slice(0, 5) + ' - ' + c.endTime.slice(0, 5) : 'Hiện không có tiết học trong phòng này';
+    }
+
+    if (b) renderAIStatus(b);
+  } catch (e) {
+    console.error('refresh error:', e);
+  }
+}
+
+function renderAIStatus(b) {
+  const score = Math.round(b.attentionScore || 0);
+  if ($('ai-score')) $('ai-score').textContent = score + '%';
+  const gauge = $('ai-gauge');
+  if (gauge) gauge.className = 'ai-gauge' + (score >= 70 ? '' : score >= 45 ? ' warn' : ' bad');
+
+  if ($('ai-status-desc')) $('ai-status-desc').textContent = score >= 70 ? 'Lớp học tập trung tốt 🌟' : score >= 45 ? 'Mức độ tập trung trung bình ⚠️' : 'Nhiều học sinh mất tập trung 🚨';
+  if ($('ai-last-time')) $('ai-last-time').textContent = new Date(b.createdAt).toLocaleTimeString('vi-VN');
+
+  updateAIDoughnut(b);
+}
+
+function updateAIDoughnut(b) {
+  const data = [b.handRaising || 0, b.reading || 0, b.writing || 0, b.usingPhone || 0, b.bowingHead || 0, b.leaningTable || 0];
+  const labels = ['Giơ tay', 'Đọc sách', 'Viết bài', 'Dùng ĐT', 'Cúi đầu', 'Nằm ra bàn'];
+  const colors = ['#2f855a', '#3182ce', '#805ad5', '#e53e3e', '#d69e2e', '#d97706'];
+
+  if (aiDoughnutChart) {
+    aiDoughnutChart.data.datasets[0].data = data;
+    aiDoughnutChart.update('none');
+    return;
+  }
+  const canvas = $('aiDoughnutChart');
+  if (!canvas) return;
+  aiDoughnutChart = new Chart(canvas, {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2 }] },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } } }
+    }
+  });
+}
+
+async function loadAIHistory() {
+  const hrs = $('ai-hrs') ? $('ai-hrs').value : 1;
+  const h = await api('/api/rooms/' + rid + '/behavior/history?hours=' + hrs);
+  const labels = h.map(x => new Date(x.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
+  const data = {
+    labels,
+    datasets: [
+      { label: 'Tập trung (%)', data: h.map(x => x.attentionScore), borderColor: '#0f766e', backgroundColor: '#0f766e22', fill: true, tension: .3, pointRadius: 0, yAxisID: 'y' },
+      { label: 'Sĩ số', data: h.map(x => x.totalStudents), borderColor: '#3182ce', tension: .3, pointRadius: 0, yAxisID: 'y1' }
+    ]
+  };
+  if (aiHistoryChart) {
+    aiHistoryChart.data = data;
+    aiHistoryChart.update('none');
+    return;
+  }
+  const canvas = $('aiHistoryChart');
+  if (!canvas) return;
+  aiHistoryChart = new Chart(canvas, {
+    type: 'line',
+    data,
+    options: {
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y: { min: 0, max: 100, position: 'left', title: { display: true, text: 'Tập trung %' } },
+        y1: { min: 0, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Số học sinh' } }
+      }
+    }
+  });
+}
+
+async function ctl(body) {
+  try {
+    if (!('auto' in body) && ('light' in body || 'fan' in body || 'ac' in body)) body.auto = false;
+    await api('/api/rooms/' + rid + '/control', { method: 'POST', body });
+    await refresh();
+    if (body.auto === false) toast('Đã chuyển sang điều khiển thủ công');
+  } catch (e) { toast(e.message); }
+}
+
+for (const k of ['auto', 'light', 'fan', 'ac']) {
+  if ($(k)) $(k).onchange = e => ctl({ [k]: e.target.checked });
+}
+if ($('dn')) $('dn').onclick = () => ctl({ acTemp: +$('act').textContent - 1 });
+if ($('up')) $('up').onclick = () => ctl({ acTemp: +$('act').textContent + 1 });
+
+async function loadChart() {
+  const h = await api('/api/rooms/' + rid + '/history?hours=' + ($('hrs') ? $('hrs').value : 1));
+  const labels = h.map(x => new Date(x.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
+  const data = {
+    labels,
+    datasets: [
+      { label: 'Nhiệt độ (°C)', data: h.map(x => x.temperature), borderColor: '#d9822b', yAxisID: 'y', tension: .3, pointRadius: 0 },
+      { label: 'Ánh sáng (lux)', data: h.map(x => x.lux), borderColor: '#0f6e8c', yAxisID: 'y1', tension: .3, pointRadius: 0 }
+    ]
+  };
+  if (envChart) { envChart.data = data; envChart.update('none'); return; }
+  const canvas = $('chart');
+  if (!canvas) return;
+  envChart = new Chart(canvas, {
+    type: 'line',
+    data,
+    options: {
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        y: { position: 'left', title: { display: true, text: '°C' } },
+        y1: { position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'lux' } }
+      }
+    }
+  });
+}
+
+async function loadSchedule() {
+  const list = await api('/api/schedules?roomId=' + rid), today = (new Date().getDay() || 7);
+  if (!$('wk')) return;
+  $('wk').innerHTML = [1, 2, 3, 4, 5, 6, 7].map(d => '<div class="day' + (d === today ? ' today' : '') + '"><h4>' + DAYS[d] + '</h4>' +
+    (list.filter(x => x.dayOfWeek === d).map(x => '<div class="cls"><button class="x" title="Xóa" data-id="' + x.id + '">×</button><b>' + esc(x.subject) + '</b><br>' + x.startTime.slice(0, 5) + ' - ' + x.endTime.slice(0, 5) + '<br><span class="mut">' + esc(x.teacher || '') + '</span></div>').join('') || '<span class="mut">Trống</span>') + '</div>').join('');
+  document.querySelectorAll('.cls .x').forEach(b => b.onclick = async () => {
+    if (!confirm('Xóa tiết học này?')) return;
+    try { await api('/api/schedules/' + b.dataset.id, { method: 'DELETE' }); loadSchedule(); toast('Đã xóa lịch học'); }
+    catch (e) { toast(e.message); }
+  });
+}
+
+if ($('f')) {
+  $('f').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      await api('/api/schedules', {
+        method: 'POST',
+        body: { roomId: rid, dayOfWeek: +$('fd').value, startTime: $('fs').value, endTime: $('fe').value, subject: $('fj').value.trim(), teacher: $('ft').value.trim() }
+      });
+      $('fj').value = ''; loadSchedule(); toast('Đã thêm lịch học');
+    } catch (err) { toast(err.message); }
+  };
+}
+
+async function loadLogs() {
+  const l = await api('/api/rooms/' + rid + '/logs');
+  if (!$('lb')) return;
+  $('lb').innerHTML = l.map(x => '<tr><td>' + new Date(x.createdAt).toLocaleString('vi-VN') + '</td><td>' + esc(x.source) + '</td><td>' + esc(x.message) + '</td></tr>').join('') || '<tr><td colspan="3">Chưa có hoạt động nào.</td></tr>';
+}
+
+document.querySelectorAll('nav button').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('nav button, .tab').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    const target = $(b.dataset.t);
+    if (target) target.classList.add('on');
+    if (b.dataset.t === 'ai') { loadAIHistory(); loadSeats(); checkAIStatus(); }
+    if (b.dataset.t === 'sch') loadSchedule();
+    if (b.dataset.t === 'log') loadLogs();
+  };
+});
+
+if ($('hrs')) $('hrs').onchange = loadChart;
+if ($('ai-hrs')) $('ai-hrs').onchange = loadAIHistory;
+if ($('room')) {
+  $('room').onchange = () => {
+    rid = +$('room').value;
+    const sel = $('room');
+    currentRoomCode = sel.options[sel.selectedIndex].text.includes('A102') ? 'A102' : 'A101';
+    refresh(); loadChart(); loadSchedule(); loadLogs();
+    const aiBtn = document.querySelector('button[data-t="ai"]');
+    if (aiBtn && aiBtn.classList.contains('on')) {
+      loadAIHistory();
+      loadSeats();
+      checkAIStatus();
+    }
+  };
+}
+
+// Close modal on Escape or backdrop click
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSeatModal(); });
+$('seatModal').addEventListener('click', e => { if (e.target === $('seatModal')) closeSeatModal(); });
+
+(async () => {
+  try {
+    const me = await api('/api/me');
+    if ($('who')) $('who').textContent = me.fullName + ' (' + me.role + ')';
+    const rooms = await api('/api/rooms');
+    if ($('room')) $('room').innerHTML = rooms.map(r => '<option value="' + r.id + '">' + esc(r.name) + '</option>').join('');
+    if (rooms && rooms.length > 0) {
+      rid = rooms[0].id;
+      currentRoomCode = rooms[0].code;
+      refresh(); loadChart(); loadSchedule();
+    }
+    checkAIStatus();
+    setInterval(() => refresh().catch(() => {}), 3000);
+    setInterval(() => loadChart().catch(() => {}), 30000);
+    setInterval(() => {
+      const aiBtn = document.querySelector('button[data-t="ai"]');
+      if (aiBtn && aiBtn.classList.contains('on')) {
+        loadAIHistory().catch(() => {});
+        loadSeats().catch(() => {});
+        checkAIStatus().catch(() => {});
+      }
+      const logTab = $('log');
+      if (logTab && logTab.classList.contains('on')) loadLogs().catch(() => {});
+    }, 4000);
+  } catch (e) {
+    console.error('Initialization error:', e);
+  }
+})();
+</script>
+</body>
+</html>
