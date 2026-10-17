@@ -26,7 +26,7 @@ public class DataSeeder implements CommandLineRunner {
     }
 
     @Override public void run(String... args) {
-        // Luôn đảm bảo tài khoản admin và gv tồn tại với mật khẩu chuẩn xác
+        // Luon dam bao tai khoan admin va gv ton tai voi mat khau chuan xac
         users.findByUsername("admin").ifPresentOrElse(
             u -> {
                 u.setPassword(enc.encode("admin123"));
@@ -41,30 +41,39 @@ public class DataSeeder implements CommandLineRunner {
             u -> {
                 u.setPassword(enc.encode("gv123"));
                 u.setRole("TEACHER");
-                u.setFullName("Giáo viên Ngoại ngữ");
+                u.setFullName("Giáo viên Giảng dạy");
                 users.save(u);
             },
-            () -> user("gv", "gv123", "TEACHER", "Giáo viên Ngoại ngữ")
+            () -> user("gv", "gv123", "TEACHER", "Giáo viên Giảng dạy")
         );
 
         if (rooms.count() == 0) {
-            Room a = rooms.save(new Room(null, "A101", "Phòng Ngoại ngữ Thông minh SmartClass A101", 40));
-            Room b = rooms.save(new Room(null, "B202", "Phòng Lab Ngoại ngữ Đa năng B202", 40));
+            Room a = rooms.save(new Room(null, "A101", "Phòng học Thông minh SmartClass A101", 40));
+            Room b = rooms.save(new Room(null, "B202", "Phòng Lab Thực hành Đa năng B202", 40));
             states.save(new DeviceState(a.getId()));
             states.save(new DeviceState(b.getId()));
             for (int d = 1; d <= 5; d++) {
-                sch(a, d, 7, 9, "Tiếng Anh Giao tiếp 4.0", "ThS. Hoàng Thu Thảo");
-                sch(a, d, 13, 15, "Luyện kỹ năng Nghe - Nói SmartClass", "TS. Nguyễn Minh Hải");
-                sch(b, d, 9, 11, "Tiếng Anh Chuyên ngành CNTT", "ThS. Trần Quang Vinh");
+                sch(a, d, 7, 9, "Lập trình & Công nghệ 4.0", "ThS. Hoàng Thu Thảo");
+                sch(a, d, 13, 15, "Khoa học Dữ liệu & AI", "TS. Nguyễn Minh Hải");
+                sch(b, d, 9, 11, "Mạng Máy tính & IoT", "ThS. Trần Quang Vinh");
             }
         }
 
-        // Đổi tên các phòng nếu còn nhãn mô phỏng cũ
+        // Chuan hoa ten tat ca phong hoc: bo chu 'ngoai ngu' va 'mo phong'
         rooms.findAll().forEach(r -> {
-            if (r.getName() != null && (r.getName().toLowerCase().contains("mo phong") || r.getName().toLowerCase().contains("mô phỏng") || r.getName().contains("A102"))) {
-                r.setName("Phòng Lab Ngoại ngữ Đa năng " + r.getCode());
-                rooms.save(r);
+            boolean needUpdate = false;
+            String name = r.getName();
+            if (name == null) name = "Phòng học " + r.getCode();
+            if (name.toLowerCase().contains("ngoại ngữ") || name.toLowerCase().contains("ngoai ngu") ||
+                name.toLowerCase().contains("mo phong") || name.toLowerCase().contains("mô phỏng")) {
+                name = name.replaceAll("(?i)ngoại ngữ|ngoai ngu|mo phong|mô phỏng", "").replaceAll("\\s+", " ").trim();
+                if (name.isEmpty() || name.equalsIgnoreCase("Phòng học")) {
+                    name = "Phòng học Thông minh " + r.getCode();
+                }
+                r.setName(name);
+                needUpdate = true;
             }
+            if (needUpdate) rooms.save(r);
         });
 
         seedSampleBehaviors();
@@ -80,9 +89,9 @@ public class DataSeeder implements CommandLineRunner {
         }
         if (a == null) return;
 
-        // 5 hàng x 4 dãy x 2 chỗ/bàn = 40 chỗ ngồi tiêu chuẩn Sao Mai SmartClass
+        // 5 hang x 4 day x 2 cho/ban = 40 cho ngoi tieu chuan SmartClass
         String[][] students = {
-            // Hàng 1
+            // Hang 1
             {"HS01", "Nguyễn Văn An",        "1", "1", "L"},
             {"HS02", "Trần Thị Mai",         "1", "1", "R"},
             {"HS03", "Lê Hoàng Nam",         "1", "2", "L"},
@@ -91,7 +100,7 @@ public class DataSeeder implements CommandLineRunner {
             {"HS06", "Đỗ Phương Linh",       "1", "3", "R"},
             {"HS07", "Hoàng Tuấn Kiệt",      "1", "4", "L"},
             {"HS08", "Bùi Thanh Thảo",       "1", "4", "R"},
-            // Hàng 2
+            // Hang 2
             {"HS09", "Ngô Gia Huy",          "2", "1", "L"},
             {"HS10", "Đặng Thùy Dung",       "2", "1", "R"},
             {"HS11", "Phan Quốc Bảo",        "2", "2", "L"},
@@ -100,7 +109,7 @@ public class DataSeeder implements CommandLineRunner {
             {"HS14", "Nguyễn Khánh Linh",    "2", "3", "R"},
             {"HS15", "Trần Đình Phúc",       "2", "4", "L"},
             {"HS16", "Võ Thị Ngọc",          "2", "4", "R"},
-            // Hàng 3
+            // Hang 3
             {"HS17", "Đinh Công Danh",       "3", "1", "L"},
             {"HS18", "Huỳnh Thị Yến",        "3", "1", "R"},
             {"HS19", "Mai Xuân Trọng",       "3", "2", "L"},
@@ -109,7 +118,7 @@ public class DataSeeder implements CommandLineRunner {
             {"HS22", "Trần Thị Thanh Tâm",   "3", "3", "R"},
             {"HS23", "Nguyễn Đức Anh",       "3", "4", "L"},
             {"HS24", "Đoàn Thị Hường",       "3", "4", "R"},
-            // Hàng 4
+            // Hang 4
             {"HS25", "Vương Gia Bảo",        "4", "1", "L"},
             {"HS26", "Lâm Thị Thu",          "4", "1", "R"},
             {"HS27", "Cao Minh Trí",         "4", "2", "L"},
@@ -118,7 +127,7 @@ public class DataSeeder implements CommandLineRunner {
             {"HS30", "Nguyễn Thị Lan",       "4", "3", "R"},
             {"HS31", "Hồ Đức Mạnh",          "4", "4", "L"},
             {"HS32", "Bùi Phương Anh",       "4", "4", "R"},
-            // Hàng 5
+            // Hang 5
             {"HS33", "Trần Văn Sơn",         "5", "1", "L"},
             {"HS34", "Lê Thị Hằng",          "5", "1", "R"},
             {"HS35", "Phạm Minh Quân",       "5", "2", "L"},

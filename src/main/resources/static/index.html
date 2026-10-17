@@ -3,7 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>SmartClass - Giải Pháp Phòng Học Ngoại Ngữ Thông Minh 4.0</title>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>SmartClass - Giải Pháp Phòng Học Thông Minh 4.0</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1045,7 +1048,7 @@
         <span>🏢</span> <b>SmartClass 4.0</b>
       </div>
       <div class="top-ribbon-item">
-        <span>🌐</span> Hệ Thống Phòng Học Ngoại Ngữ Thông Minh
+        <span>🌐</span> Hệ Thống Phòng Học Thông Minh 4.0
       </div>
     </div>
     <div class="top-ribbon-right">
@@ -1064,7 +1067,7 @@
         <div class="brand-logo-icon">SC</div>
         <div class="brand-text">
           <h1>SMARTCLASS</h1>
-          <span>Smart Language Classroom Solution</span>
+          <span>Hệ Thống Phòng Học Thông Minh</span>
         </div>
       </div>
 
@@ -1087,13 +1090,13 @@
       </div>
     </div>
 
-    <!-- Navigation tabs: Đã gộp Camera Giám sát và Sơ đồ chỗ ngồi làm 1 tab -->
+    <!-- Navigation tabs: Tab Camera AI & Sơ đồ lớp học là tab đầu tiên được chọn mặc định -->
     <nav class="nav-bar">
-      <button class="on" data-tab="tab-dashboard">
-        <span>📊</span> Tổng quan & Thiết bị
-      </button>
-      <button data-tab="tab-camera-seating">
+      <button class="on" data-tab="tab-camera-seating">
         <span>📷</span> Camera AI & Sơ đồ lớp học
+      </button>
+      <button data-tab="tab-dashboard">
+        <span>📊</span> Điều khiển Thiết bị & Môi trường
       </button>
       <button data-tab="tab-schedule">
         <span>📅</span> Thời khóa biểu
@@ -1121,8 +1124,134 @@
       <button class="btn-sm danger" onclick="document.getElementById('instantAlertBox').style.display='none'">Đóng</button>
     </div>
 
-    <!-- ================= TAB 1: TỔNG QUAN & THIẾT BỊ ================= -->
-    <div id="tab-dashboard" class="tab on">
+    <!-- ================= TAB 1: CAMERA AI & SƠ ĐỒ LỚP HỌC (TAB CHÍNH MẶC ĐỊNH) ================= -->
+    <div id="tab-camera-seating" class="tab on">
+      <!-- 1. AI Camera Live Viewport -->
+      <div class="ai-viewport-card">
+        <div class="ai-viewport-header">
+          <div class="ai-viewport-title">
+            <span class="live-rec-dot"></span>
+            <span>Camera AI Giám sát Lớp học Thông minh</span>
+            <span class="status-pill" id="aiStreamStatusBadge">SẴN SÀNG</span>
+          </div>
+          <div style="font-size: 12px; color: #94a3b8; font-family: monospace;">
+            FPS: <b id="camFpsText" style="color: #38bdf8;">0.0</b> | Người: <b id="camPersonCount" style="color: #4ade80;">0</b> | Độ phân giải: 1280x720 HD
+          </div>
+        </div>
+
+        <div class="ai-stream-frame" id="streamContainer">
+          <div class="ai-stream-placeholder" id="streamPlaceholder">
+            <div class="icon">📷</div>
+            <p style="font-size: 15px; font-weight: 600;">Camera AI đang tắt</p>
+            <p style="font-size: 12px; margin-top: 4px;">Nhấn nút "Bật Camera AI" bên dưới để kích hoạt camera nhận diện cử chỉ và hành vi</p>
+          </div>
+          <img id="aiStreamImg" style="display: none;" alt="AI Stream Feed">
+        </div>
+
+        <div class="ai-viewport-footer">
+          <div class="ai-cam-actions">
+            <button class="btn-action start-cam" id="btnStartCam">
+              <span>▶</span> Bật Camera AI
+            </button>
+            <button class="btn-action stop-cam" id="btnStopCam">
+              <span>⏹</span> Tắt Camera AI
+            </button>
+          </div>
+          <div style="font-size: 12px; color: #94a3b8;">
+            * Camera AI phân tích trực tiếp: Nhận diện người, phát hiện dùng điện thoại, giơ tay phát biểu, độ tập trung.
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Real-time behavior summary cards -->
+      <div class="section-title">
+        <span>⚡ Thống kê hành vi lớp học thời gian thực</span>
+        <span style="font-size: 13px; font-weight: 700; color: var(--primary);">
+          Chỉ số tập trung: <b id="aiScoreNumber" style="font-size: 16px;">100%</b>
+        </span>
+      </div>
+
+      <div class="behavior-grid">
+        <div class="behavior-card studying">
+          <div class="behavior-icon">📖</div>
+          <div>
+            <div class="behavior-num" id="statStudying">0</div>
+            <div class="behavior-label">Đang học / Chép bài</div>
+          </div>
+        </div>
+
+        <div class="behavior-card raising">
+          <div class="behavior-icon">✋</div>
+          <div>
+            <div class="behavior-num" id="statRaising">0</div>
+            <div class="behavior-label">Giơ tay phát biểu</div>
+          </div>
+        </div>
+
+        <div class="behavior-card phone">
+          <div class="behavior-icon">📱</div>
+          <div>
+            <div class="behavior-num" id="statPhone">0</div>
+            <div class="behavior-label">Dùng điện thoại</div>
+          </div>
+        </div>
+
+        <div class="behavior-card sleeping">
+          <div class="behavior-icon">😴</div>
+          <div>
+            <div class="behavior-num" id="statSleeping">0</div>
+            <div class="behavior-label">Gục đầu / Buồn ngủ</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Smart Seating Map (Trực tiếp trong cùng tab với Camera) -->
+      <div class="seating-wrapper">
+        <div class="section-title">
+          <span>🪑 Sơ đồ Chỗ ngồi Thông minh Phòng học</span>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-sm" id="btnRefreshSeats"><span>🔄</span> Làm mới sơ đồ</button>
+            <button class="btn-sm primary" id="btnConfigSeatingAdmin" style="display: none;"><span>⚙️</span> Cấu hình bàn ghế</button>
+          </div>
+        </div>
+
+        <!-- Teacher's Blackboard Podium -->
+        <div class="blackboard-area">
+          <span>👨‍🏫 BỤC GIẢNG & BẢNG TƯƠNG TÁC ĐA PHƯƠNG TIỆN (FRONT)</span>
+        </div>
+
+        <!-- Legend -->
+        <div class="seating-legend">
+          <div class="legend-item"><div class="legend-dot studying"></div><span>Đang học / Chú ý</span></div>
+          <div class="legend-item"><div class="legend-dot raising"></div><span>Giơ tay phát biểu</span></div>
+          <div class="legend-item"><div class="legend-dot phone"></div><span>Cảnh báo dùng điện thoại</span></div>
+          <div class="legend-item"><div class="legend-dot sleeping"></div><span>Gục đầu / Buồn ngủ</span></div>
+          <div class="legend-item"><div class="legend-dot empty"></div><span>Ghế trống</span></div>
+        </div>
+
+        <!-- Desks Grid Container -->
+        <div class="desks-grid" id="seatingGrid">
+          <!-- Dynamically populated via loadSeats() -->
+        </div>
+      </div>
+
+      <!-- 4. Behavior Trend Chart -->
+      <div class="card-panel">
+        <div class="section-title">
+          <span>📈 Diễn biến tập trung & Hành vi trong tiết học</span>
+          <select id="aiChartHours" style="padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; font-family: inherit;">
+            <option value="1">1 giờ qua</option>
+            <option value="2">2 giờ qua</option>
+          </select>
+        </div>
+        <div style="height: 240px; position: relative;">
+          <canvas id="behaviorChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= TAB 2: ĐIỀU KHIỂN THIẾT BỊ & MÔI TRƯỜNG ================= -->
+    <div id="tab-dashboard" class="tab">
       <!-- Environmental gauges -->
       <div class="section-title">
         <span>📈 Chỉ số môi trường phòng học thời gian thực</span>
@@ -1256,132 +1385,6 @@
           <div style="height: 250px; position: relative;">
             <canvas id="envChart"></canvas>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ================= TAB 2: CAMERA AI & SƠ ĐỒ LỚP HỌC (GỘP CHUNG 1 TAB) ================= -->
-    <div id="tab-camera-seating" class="tab">
-      <!-- 1. AI Camera Live Viewport -->
-      <div class="ai-viewport-card">
-        <div class="ai-viewport-header">
-          <div class="ai-viewport-title">
-            <span class="live-rec-dot"></span>
-            <span>Camera AI Giám sát Lớp học Thông minh</span>
-            <span class="status-pill" id="aiStreamStatusBadge">SẴN SÀNG</span>
-          </div>
-          <div style="font-size: 12px; color: #94a3b8; font-family: monospace;">
-            FPS: <b id="camFpsText" style="color: #38bdf8;">0.0</b> | Người: <b id="camPersonCount" style="color: #4ade80;">0</b> | Độ phân giải: 1280x720 HD
-          </div>
-        </div>
-
-        <div class="ai-stream-frame" id="streamContainer">
-          <div class="ai-stream-placeholder" id="streamPlaceholder">
-            <div class="icon">📷</div>
-            <p style="font-size: 15px; font-weight: 600;">Camera AI đang tắt</p>
-            <p style="font-size: 12px; margin-top: 4px;">Nhấn nút "Bật Camera AI" bên dưới để kích hoạt camera nhận diện cử chỉ và hành vi</p>
-          </div>
-          <img id="aiStreamImg" style="display: none;" alt="AI Stream Feed">
-        </div>
-
-        <div class="ai-viewport-footer">
-          <div class="ai-cam-actions">
-            <button class="btn-action start-cam" id="btnStartCam">
-              <span>▶</span> Bật Camera AI
-            </button>
-            <button class="btn-action stop-cam" id="btnStopCam">
-              <span>⏹</span> Tắt Camera AI
-            </button>
-          </div>
-          <div style="font-size: 12px; color: #94a3b8;">
-            * Camera AI phân tích trực tiếp: Nhận diện người, phát hiện dùng điện thoại, giơ tay phát biểu, độ tập trung.
-          </div>
-        </div>
-      </div>
-
-      <!-- 2. Real-time behavior summary cards -->
-      <div class="section-title">
-        <span>⚡ Thống kê hành vi lớp học thời gian thực</span>
-        <span style="font-size: 13px; font-weight: 700; color: var(--primary);">
-          Chỉ số tập trung: <b id="aiScoreNumber" style="font-size: 16px;">100%</b>
-        </span>
-      </div>
-
-      <div class="behavior-grid">
-        <div class="behavior-card studying">
-          <div class="behavior-icon">📖</div>
-          <div>
-            <div class="behavior-num" id="statStudying">0</div>
-            <div class="behavior-label">Đang học / Chép bài</div>
-          </div>
-        </div>
-
-        <div class="behavior-card raising">
-          <div class="behavior-icon">✋</div>
-          <div>
-            <div class="behavior-num" id="statRaising">0</div>
-            <div class="behavior-label">Giơ tay phát biểu</div>
-          </div>
-        </div>
-
-        <div class="behavior-card phone">
-          <div class="behavior-icon">📱</div>
-          <div>
-            <div class="behavior-num" id="statPhone">0</div>
-            <div class="behavior-label">Dùng điện thoại</div>
-          </div>
-        </div>
-
-        <div class="behavior-card sleeping">
-          <div class="behavior-icon">😴</div>
-          <div>
-            <div class="behavior-num" id="statSleeping">0</div>
-            <div class="behavior-label">Gục đầu / Buồn ngủ</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 3. Smart Seating Map (Trực tiếp trong cùng tab) -->
-      <div class="seating-wrapper">
-        <div class="section-title">
-          <span>🪑 Sơ đồ Chỗ ngồi Thông minh Phòng học</span>
-          <div style="display: flex; gap: 8px;">
-            <button class="btn-sm" id="btnRefreshSeats"><span>🔄</span> Làm mới sơ đồ</button>
-            <button class="btn-sm primary" id="btnConfigSeatingAdmin" style="display: none;"><span>⚙️</span> Cấu hình bàn ghế</button>
-          </div>
-        </div>
-
-        <!-- Teacher's Blackboard Podium -->
-        <div class="blackboard-area">
-          <span>👨‍🏫 BỤC GIẢNG & BẢNG TƯƠNG TÁC ĐA PHƯƠNG TIỆN (FRONT)</span>
-        </div>
-
-        <!-- Legend -->
-        <div class="seating-legend">
-          <div class="legend-item"><div class="legend-dot studying"></div><span>Đang học / Chú ý</span></div>
-          <div class="legend-item"><div class="legend-dot raising"></div><span>Giơ tay phát biểu</span></div>
-          <div class="legend-item"><div class="legend-dot phone"></div><span>Cảnh báo dùng điện thoại</span></div>
-          <div class="legend-item"><div class="legend-dot sleeping"></div><span>Gục đầu / Buồn ngủ</span></div>
-          <div class="legend-item"><div class="legend-dot empty"></div><span>Ghế trống</span></div>
-        </div>
-
-        <!-- Desks Grid Container -->
-        <div class="desks-grid" id="seatingGrid">
-          <!-- Dynamically populated via loadSeats() -->
-        </div>
-      </div>
-
-      <!-- 4. Behavior Trend Chart -->
-      <div class="card-panel">
-        <div class="section-title">
-          <span>📈 Diễn biến tập trung & Hành vi trong tiết học</span>
-          <select id="aiChartHours" style="padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); font-size: 12px; font-family: inherit;">
-            <option value="1">1 giờ qua</option>
-            <option value="2">2 giờ qua</option>
-          </select>
-        </div>
-        <div style="height: 240px; position: relative;">
-          <canvas id="behaviorChart"></canvas>
         </div>
       </div>
     </div>
@@ -1549,7 +1552,7 @@
       <div class="modal-body">
         <div class="form-row">
           <label>Tên đăng nhập *:</label>
-          <input type="text" id="newUsername" placeholder="Ví dụ: gv_tienganh">
+          <input type="text" id="newUsername" placeholder="Ví dụ: gv_khoahoc">
         </div>
         <div class="form-row">
           <label>Mật khẩu khởi tạo *:</label>
@@ -1557,7 +1560,7 @@
         </div>
         <div class="form-row">
           <label>Họ và tên hiển thị:</label>
-          <input type="text" id="newFullName" placeholder="Ví dụ: Cô Nguyễn Thùy Linh">
+          <input type="text" id="newFullName" placeholder="Ví dụ: Thầy Trần Quang Vinh">
         </div>
         <div class="form-row">
           <label>Vai trò hệ thống *:</label>
@@ -1624,7 +1627,7 @@
         </div>
         <div class="form-row">
           <label>Tên phòng học *:</label>
-          <input type="text" id="newRoomName" placeholder="Ví dụ: Phòng Lab Ngoại ngữ Đa phương tiện C301">
+          <input type="text" id="newRoomName" placeholder="Ví dụ: Phòng Lab Thông minh Đa chức năng C301">
         </div>
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
           <div class="form-row">
@@ -1722,7 +1725,7 @@
         </div>
         <div class="form-row">
           <label>Môn học / Tiết học *:</label>
-          <input type="text" id="schSubject" placeholder="Ví dụ: Tiếng Anh Nghe - Nói SmartClass">
+          <input type="text" id="schSubject" placeholder="Ví dụ: Công nghệ Thông tin & Lập trình">
         </div>
         <div class="form-row">
           <label>Giáo viên giảng dạy:</label>
@@ -1739,11 +1742,11 @@
   <!-- Toast notification message -->
   <div id="toast">Thông báo hệ thống</div>
 
-  <!-- Footer -->
+  <!-- Footer: Hệ thống quản lý phòng học thông minh chung, đơn vị thi công NTP Tech -->
   <footer>
     <div style="max-width: 1440px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
       <div>
-        <b>Hệ thống Quản lý Phòng học Ngoại ngữ Thông minh SmartClass 4.0</b> © 2026.
+        <b>Hệ thống Quản lý Phòng học Thông minh SmartClass 4.0</b> © 2026.
       </div>
       <div>
         Đơn vị thi công & phát triển: <b>NTP Tech</b>
@@ -1818,7 +1821,7 @@
       $('liveClock').textContent = new Date().toLocaleTimeString('vi-VN');
     }, 1000);
 
-    // Tab switching: Note that tab-camera-seating combines both Camera AI and Seating map
+    // Tab switching
     document.querySelectorAll('nav.nav-bar button').forEach(btn => {
       btn.onclick = () => {
         document.querySelectorAll('nav.nav-bar button').forEach(b => b.classList.remove('on'));
@@ -1827,13 +1830,13 @@
         const targetTab = $(btn.dataset.tab);
         if (targetTab) targetTab.classList.add('on');
 
-        if (btn.dataset.tab === 'tab-dashboard') { loadEnvStatus(); loadEnvChart(); }
         if (btn.dataset.tab === 'tab-camera-seating') {
           loadBehaviorData();
           loadBehaviorChart();
           checkCameraStatus();
           loadSeats();
         }
+        if (btn.dataset.tab === 'tab-dashboard') { loadEnvStatus(); loadEnvChart(); }
         if (btn.dataset.tab === 'tab-schedule') { loadSchedules(); }
         if (btn.dataset.tab === 'tab-admin-users') { loadUsers(); }
         if (btn.dataset.tab === 'tab-admin-rooms') { loadRoomsAdmin(); }
@@ -1966,7 +1969,7 @@
     }
     $('chartHours').onchange = loadEnvChart;
 
-    // ================= 2. CAMERA AI & SEATING MAP (COMBINED) =================
+    // ================= 2. CAMERA AI & SEATING MAP (COMBINED TAB) =================
     async function checkCameraStatus() {
       try {
         const res = await fetchApi('/api/device/camera-status');
@@ -2597,20 +2600,24 @@
         // 2. Load Rooms
         await initRooms();
 
-        // 3. Load initial view
-        loadEnvStatus();
-        loadEnvChart();
+        // 3. Load initial view: Camera & Seating map is active by default
         loadSeats();
         checkCameraStatus();
+        loadBehaviorData();
+        loadBehaviorChart();
+        loadEnvStatus();
 
         // Periodic background refresh
         setInterval(() => {
-          loadEnvStatus().catch(() => {});
           const camSeatTab = $('tab-camera-seating');
           if (camSeatTab && camSeatTab.classList.contains('on')) {
             loadBehaviorData().catch(() => {});
             checkCameraStatus().catch(() => {});
             loadSeats().catch(() => {});
+          }
+          const dashTab = $('tab-dashboard');
+          if (dashTab && dashTab.classList.contains('on')) {
+            loadEnvStatus().catch(() => {});
           }
         }, 3000);
 
