@@ -9,7 +9,5 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @EnableScheduling
 @EnableJpaRepositories(basePackages = "com.iot.classroom.repository", considerNestedRepositories = true)
 public class ClassroomApplication {
-    public static void main(String[] args) {
-        SpringApplication.run(ClassroomApplication.class, args);
-    }
+    public static void main(String[] args) { SpringApplication.run(ClassroomApplication.class, args); }
 }
