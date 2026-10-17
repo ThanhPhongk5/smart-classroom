@@ -1,25 +1,332 @@
 <!DOCTYPE html>
-<html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Đăng nhập - Lớp học thông minh</title>
-<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&display=swap" rel="stylesheet">
-<style>
-*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#e9eef1;font-family:'Be Vietnam Pro',system-ui,sans-serif;color:#12232e}
-form{background:#fff;padding:36px 32px;width:min(360px,92vw);border-radius:6px;border-top:6px solid #0f6e8c;box-shadow:0 8px 30px rgba(18,35,46,.12)}
-h1{font-size:22px;margin:0 0 4px}p{margin:0 0 22px;color:#566a77;font-size:14px}
-label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px}
-input{width:100%;padding:11px 12px;border:1.5px solid #c5d1d9;border-radius:4px;font:inherit}
-input:focus{outline:3px solid #0f6e8c55;border-color:#0f6e8c}
-button{width:100%;margin-top:22px;padding:12px;border:0;border-radius:4px;background:#0f6e8c;color:#fff;font:600 15px inherit;cursor:pointer}
-button:hover{background:#0b5870}.err{color:#c0392b;font-size:13px;margin-top:12px;display:none}
-.hint{margin-top:18px;font-size:12px;color:#566a77}
-</style></head><body>
-<form method="post" action="/login">
-<h1>Lớp học thông minh</h1><p>Đăng nhập để giám sát và điều khiển phòng học</p>
-<label for="u">Tên đăng nhập</label><input id="u" name="username" autofocus required>
-<label for="p">Mật khẩu</label><input id="p" name="password" type="password" required>
-<button type="submit">Đăng nhập</button>
-<div class="err" id="e">Sai tên đăng nhập hoặc mật khẩu.</div>
-<div class="hint">Tài khoản mẫu: admin / admin123 &nbsp;·&nbsp; gv / gv123</div>
-</form>
-<script>if(location.search.includes('error'))document.getElementById('e').style.display='block'</script>
-</body></html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đăng nhập - Sao Mai SmartClass | Giải Pháp Phòng Học Ngoại Ngữ Thông Minh</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #f26539;
+      --primary-hover: #e04f22;
+      --navy: #13222e;
+      --navy-light: #1f3645;
+      --text-main: #1e293b;
+      --text-muted: #64748b;
+      --bg: #f8fafc;
+      --border: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #0e1922 0%, #172a38 50%, #1f3645 100%);
+      font-family: 'Be Vietnam Pro', system-ui, -apple-system, sans-serif;
+      color: var(--text-main);
+      padding: 20px;
+      position: relative;
+      overflow-x: hidden;
+    }
+    /* Subtle decorative background circles */
+    body::before {
+      content: "";
+      position: absolute;
+      width: 480px;
+      height: 480px;
+      background: radial-gradient(circle, rgba(242, 101, 57, 0.15) 0%, rgba(242, 101, 57, 0) 70%);
+      top: -100px;
+      left: -100px;
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    body::after {
+      content: "";
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, rgba(14, 165, 233, 0.12) 0%, rgba(14, 165, 233, 0) 70%);
+      bottom: -120px;
+      right: -100px;
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .login-container {
+      width: 100%;
+      max-width: 440px;
+      background: #ffffff;
+      border-radius: 16px;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.25);
+      overflow: hidden;
+      position: relative;
+      z-index: 10;
+      border-top: 5px solid var(--primary);
+    }
+    .login-header {
+      padding: 32px 32px 20px;
+      text-align: center;
+      background: #ffffff;
+    }
+    .brand-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(242, 101, 57, 0.1);
+      color: var(--primary);
+      padding: 5px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .brand-logo {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      font-weight: 800;
+      font-size: 20px;
+      color: var(--navy);
+      letter-spacing: -0.3px;
+    }
+    .logo-icon {
+      width: 38px;
+      height: 38px;
+      background: linear-gradient(135deg, #f26539, #ff8c5a);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      font-size: 18px;
+      box-shadow: 0 4px 12px rgba(242, 101, 57, 0.35);
+    }
+    .login-header h2 {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--navy);
+      margin-top: 14px;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+    }
+    .login-header p {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+      line-height: 1.5;
+    }
+    .login-body {
+      padding: 0 32px 32px;
+    }
+    .form-group {
+      margin-bottom: 18px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--navy-light);
+      margin-bottom: 6px;
+    }
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .input-wrapper input {
+      width: 100%;
+      padding: 12px 14px 12px 40px;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      color: var(--text-main);
+      transition: all 0.2s ease;
+      background: #fdfdfd;
+    }
+    .input-wrapper input:focus {
+      outline: none;
+      border-color: var(--primary);
+      background: #ffffff;
+      box-shadow: 0 0 0 4px rgba(242, 101, 57, 0.15);
+    }
+    .input-icon {
+      position: absolute;
+      left: 14px;
+      color: #94a3b8;
+      font-size: 16px;
+      pointer-events: none;
+    }
+    .btn-login {
+      width: 100%;
+      padding: 13px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 700;
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(242, 101, 57, 0.35);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 6px;
+    }
+    .btn-login:hover {
+      background: linear-gradient(135deg, #ff7448 0%, #d84519 100%);
+      box-shadow: 0 6px 18px rgba(242, 101, 57, 0.45);
+      transform: translateY(-1px);
+    }
+    .btn-login:active {
+      transform: translateY(0);
+    }
+    .alert-error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-left: 4px solid #ef4444;
+      color: #b91c1c;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 18px;
+      display: none;
+      align-items: center;
+      gap: 8px;
+    }
+    .role-helper {
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px dashed var(--border);
+    }
+    .role-helper-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .role-chips {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .chip {
+      background: #f1f5f9;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s ease;
+    }
+    .chip:hover {
+      border-color: var(--primary);
+      background: #fff7ed;
+    }
+    .chip-role {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--navy);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .chip-acc {
+      font-size: 11px;
+      color: #64748b;
+      margin-top: 2px;
+      font-family: monospace;
+    }
+    .footer-copy {
+      margin-top: 24px;
+      text-align: center;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="login-container">
+    <div class="login-header">
+      <div class="brand-badge">
+        <span>★</span> Sao Mai Education Group
+      </div>
+      <div class="brand-logo">
+        <div class="logo-icon">SM</div>
+        <span>Sao Mai SmartClass</span>
+      </div>
+      <h2>Đăng nhập Hệ thống</h2>
+      <p>Giải pháp Quản lý & Giám sát Phòng học Ngoại ngữ Thông minh 4.0</p>
+    </div>
+
+    <div class="login-body">
+      <div class="alert-error" id="errBox">
+        <span>⚠️</span> Sai tên đăng nhập hoặc mật khẩu!
+      </div>
+
+      <form method="post" action="/login">
+        <div class="form-group">
+          <label for="username">Tên đăng nhập</label>
+          <div class="input-wrapper">
+            <span class="input-icon">👤</span>
+            <input type="text" id="username" name="username" placeholder="Nhập tên tài khoản..." autofocus required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Mật khẩu</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔒</span>
+            <input type="password" id="password" name="password" placeholder="Nhập mật khẩu..." required>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-login">
+          <span>Đăng nhập hệ thống</span>
+          <span>→</span>
+        </button>
+      </form>
+
+      <div class="role-helper">
+        <div class="role-helper-title">Đăng nhập nhanh theo vai trò:</div>
+        <div class="role-chips">
+          <div class="chip" onclick="fillCreds('admin', 'admin123')">
+            <div class="chip-role">👑 Quản trị viên</div>
+            <div class="chip-acc">admin / admin123</div>
+          </div>
+          <div class="chip" onclick="fillCreds('gv', 'gv123')">
+            <div class="chip-role">🎓 Giáo viên</div>
+            <div class="chip-acc">gv / gv123</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer-copy">
+    © 2026 Sao Mai Education Group. Bản quyền thuộc về Hệ thống Phòng học Thông minh SmartClass.
+  </div>
+
+  <script>
+    if (window.location.search.includes('error')) {
+      document.getElementById('errBox').style.display = 'flex';
+    }
+    function fillCreds(u, p) {
+      document.getElementById('username').value = u;
+      document.getElementById('password').value = p;
+    }
+  </script>
+</body>
+</html>

@@ -176,12 +176,9 @@ class VideoProcessor:
         self.total_cols = 4
         self.seats_per_desk = 2
 
-        # Che do Solo Demo
+        # Che do Demo 1 nguoi / phong hoc that
         self.demo_mode = True
         self.demo_seat_code = 'B1-D1L'
-        self.ambient_activity = True
-        self.ambient_seats_cache = []
-        self.last_ambient_tick = 0
 
     def fetch_room_layout(self):
         try:
@@ -277,33 +274,6 @@ class VideoProcessor:
 
         threading.Thread(target=_post, daemon=True).start()
 
-    def _generate_ambient_seats(self, demo_seat_code, demo_status, demo_action):
-        now = time.time()
-        if now - self.last_ambient_tick > 3.0 or not self.ambient_seats_cache:
-            self.last_ambient_tick = now
-            cache = []
-            for r in range(1, self.total_rows + 1):
-                for c in range(1, self.total_cols + 1):
-                    sides = ['L', 'R'] if self.seats_per_desk == 2 else ['']
-                    for s in sides:
-                        code = f'B{r}-D{c}{s}'
-                        if code == demo_seat_code:
-                            continue
-                        rnd = random.random()
-                        if rnd < 0.70:
-                            st, act = 'studying', 'Hoc bai'
-                        elif rnd < 0.85:
-                            st, act = 'studying', 'Viet bai'
-                        elif rnd < 0.95:
-                            st, act = 'studying', 'Doc sach'
-                        else:
-                            st, act = 'raising_hand', 'Gio tay'
-                        cache.append({'seatCode': code, 'status': st, 'action': act})
-            self.ambient_seats_cache = cache
-
-        res = list(self.ambient_seats_cache)
-        res.append({'seatCode': demo_seat_code, 'status': demo_status, 'action': demo_action})
-        return res
 
     def _process_loop(self, loop_path=None):
         """Xu ly in-line truc tiep tren tung frame: nhan dien tuc thi, dong nhat tuyet doi voi cu dong"""
@@ -502,36 +472,15 @@ class VideoProcessor:
                 cv2.putText(frame, lbl, (ph_box[0] + 4, max(14, ph_box[1] - 5)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
 
-            # 6. Dong bo Ambient va Backend
+            # 6. Dong bo du lieu thuc ve Backend (Loai bo hoan toan mo phong gia lap)
             self.phone_detected_alert = has_phone
-            if self.demo_mode and self.ambient_activity:
-                full_seat_updates = self._generate_ambient_seats(self.demo_seat_code, demo_user_status, demo_user_action)
-                display_total = len(full_seat_updates)
-                ambient_stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
-                for su in full_seat_updates:
-                    act = su.get('action', '')
-                    if 'Dung dien thoai' in act: ambient_stats[3] += 1
-                    elif 'Gio tay' in act: ambient_stats[0] += 1
-                    elif 'Doc sach' in act: ambient_stats[1] += 1
-                    elif 'Viet bai' in act: ambient_stats[2] += 1
-                    elif 'Guc dau' in act: ambient_stats[4] += 1
-                    elif 'Nam bo ban' in act: ambient_stats[5] += 1
-                    else: ambient_stats[2] += 1
+            pos = stats.get(0, 0) + stats.get(1, 0) + stats.get(2, 0)
+            score = round((pos / max(1, total)) * 100, 1) if total > 0 else 100.0
 
-                pos = ambient_stats.get(0, 0) + ambient_stats.get(1, 0) + ambient_stats.get(2, 0)
-                score = round((pos / max(1, display_total)) * 100, 1)
-
-                self.stats = ambient_stats
-                self.total_students = display_total
-                self.attention_score = score
-                self._sync_to_backend(full_seat_updates, ambient_stats, display_total, score)
-            else:
-                pos = stats.get(0, 0) + stats.get(1, 0) + stats.get(2, 0)
-                score = round((pos / max(1, total)) * 100, 1) if total > 0 else 0.0
-
-                self.stats = stats
-                self.total_students = total
-                self.attention_score = score
+            self.stats = stats
+            self.total_students = total
+            self.attention_score = score
+            if seat_updates:
                 self._sync_to_backend(seat_updates, stats, total, score)
 
             # Ve HUD
@@ -658,22 +607,18 @@ def set_demo_mode():
         processor.demo_mode = bool(data['demoMode'])
     if 'demoSeat' in data and data['demoSeat']:
         processor.demo_seat_code = str(data['demoSeat'])
-    if 'ambient' in data:
-        processor.ambient_activity = bool(data['ambient'])
     if 'rows' in data and data['rows']:
         processor.total_rows = int(data['rows'])
     if 'cols' in data and data['cols']:
         processor.total_cols = int(data['cols'])
     if 'seatsPerDesk' in data and data['seatsPerDesk']:
         processor.seats_per_desk = int(data['seatsPerDesk'])
-    processor.ambient_seats_cache = []
     if 'rows' not in data and 'cols' not in data:
         processor.fetch_room_layout()
     return jsonify({
         'success': True,
         'demoMode': processor.demo_mode,
         'demoSeat': processor.demo_seat_code,
-        'ambient': processor.ambient_activity,
         'totalRows': processor.total_rows,
         'totalCols': processor.total_cols,
         'seatsPerDesk': processor.seats_per_desk
