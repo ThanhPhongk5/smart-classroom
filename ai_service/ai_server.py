@@ -493,6 +493,20 @@ class VideoProcessor:
                     self.current_frame = jpeg.tobytes()
                     self.frame_id = (self.frame_id + 1) % 1000000
 
+                now_f = time.time()
+                if now_f - getattr(self, 'last_frame_post', 0) > 0.35:
+                    self.last_frame_post = now_f
+                    f_bytes = self.current_frame
+                    def _post_f(b):
+                        try:
+                            requests.post(f'{BACKEND_BASE_URL}/api/device/camera-frame',
+                                          data=b,
+                                          headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'image/jpeg'},
+                                          timeout=0.8)
+                        except Exception:
+                            pass
+                    threading.Thread(target=_post_f, args=(f_bytes,), daemon=True).start()
+
         self.is_running = False
         self.mode = 'idle'
 

@@ -1972,11 +1972,26 @@
     // ================= 2. CAMERA AI & SEATING MAP (COMBINED TAB) =================
     async function checkCameraStatus() {
       try {
-        const res = await fetchApi('/api/device/camera-status');
-        if (res) {
-          isCameraRunning = !!res.isRunning;
-          updateCameraUi(isCameraRunning, res);
+        let localStatus = null;
+        try {
+          const lRes = await fetch('http://localhost:5000/api/status', { signal: AbortSignal.timeout(1000) });
+          if (lRes.ok) localStatus = await lRes.json();
+        } catch (_) {}
+
+        const res = await fetchApi('/api/device/camera-status').catch(() => null);
+
+        let running = false;
+        let info = {};
+        if (localStatus && localStatus.running) {
+          running = true;
+          info = localStatus;
+        } else if (res) {
+          running = !!(res.running || res.isRunning || res.active || res.commandActive);
+          info = res;
         }
+
+        isCameraRunning = running;
+        updateCameraUi(running, info);
       } catch (_) {}
     }
 
@@ -1989,22 +2004,30 @@
       if (running) {
         placeholder.style.display = 'none';
         img.style.display = 'block';
-        img.src = '/api/device/camera-frame?t=' + Date.now();
         badge.textContent = 'TRỰC TIẾP HD';
         badge.style.background = 'rgba(239, 68, 68, 0.2)';
         badge.style.color = '#f87171';
         badge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
 
-        if (!camInterval) {
-          camInterval = setInterval(() => {
-            if (isCameraRunning) {
+        // Priority 1: Direct MJPEG stream from local AI server if reachable
+        // Priority 2: Fallback to backend /api/device/camera-frame
+        if (!img.src || (!img.src.includes(':5000') && !img.src.includes('camera-frame'))) {
+          img.src = 'http://localhost:5000/video_feed';
+          img.onerror = () => {
+            if (!camInterval) {
               img.src = '/api/device/camera-frame?t=' + Date.now();
+              camInterval = setInterval(() => {
+                if (isCameraRunning) {
+                  img.src = '/api/device/camera-frame?t=' + Date.now();
+                }
+              }, 200);
             }
-          }, 120);
+          };
         }
       } else {
         placeholder.style.display = 'block';
         img.style.display = 'none';
+        img.src = '';
         badge.textContent = 'ĐANG TẮT';
         badge.style.background = 'rgba(100, 116, 139, 0.2)';
         badge.style.color = '#94a3b8';
@@ -2012,17 +2035,32 @@
         if (camInterval) { clearInterval(camInterval); camInterval = null; }
       }
 
-      if (info.fps != null) $('camFpsText').textContent = info.fps.toFixed(1);
+      if (info.fps != null) $('camFpsText').textContent = typeof info.fps === 'number' ? info.fps.toFixed(1) : info.fps;
       if (info.totalStudents != null) $('camPersonCount').textContent = info.totalStudents;
-      if (info.attentionScore != null) $('aiScoreNumber').textContent = info.attentionScore.toFixed(0) + '%';
+      if (info.attentionScore != null) $('aiScoreNumber').textContent = (typeof info.attentionScore === 'number' ? info.attentionScore.toFixed(0) : info.attentionScore) + '%';
     }
 
     $('btnStartCam').onclick = async () => {
       try {
         showToast('Đang kích hoạt camera AI...');
-        await fetchApi('/api/device/camera-command?cmd=start_cam&room=' + currentRoomCode);
-        showToast('Đã gửi lệnh bật Camera AI!');
-        setTimeout(checkCameraStatus, 1500);
+
+        // 1. Trigger local AI server directly if running
+        fetch('http://localhost:5000/api/webcam/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ room: currentRoomCode, demoMode: true })
+        }).catch(() => {});
+
+        // 2. Also send camera-command to Backend (supports both query params and body)
+        await fetchApi('/api/device/camera-command?cmd=start_cam&room=' + currentRoomCode).catch(() => {});
+        await fetchApi('/api/device/camera-command', {
+          method: 'POST',
+          body: { active: true, roomCode: currentRoomCode, demoMode: true }
+        }).catch(() => {});
+
+        showToast('Đã kích hoạt Camera AI thành công!');
+        updateCameraUi(true);
+        setTimeout(checkCameraStatus, 800);
       } catch (e) {
         showToast(e.message);
       }
@@ -2030,7 +2068,12 @@
 
     $('btnStopCam').onclick = async () => {
       try {
-        await fetchApi('/api/device/camera-command?cmd=stop');
+        fetch('http://localhost:5000/api/webcam/stop', { method: 'POST' }).catch(() => {});
+        await fetchApi('/api/device/camera-command?cmd=stop').catch(() => {});
+        await fetchApi('/api/device/camera-command', {
+          method: 'POST',
+          body: { active: false, roomCode: currentRoomCode }
+        }).catch(() => {});
         showToast('Đã tắt Camera AI');
         updateCameraUi(false);
       } catch (e) {

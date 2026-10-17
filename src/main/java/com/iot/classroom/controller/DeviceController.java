@@ -132,7 +132,15 @@ public class DeviceController {
     }
 
     @GetMapping("/camera-command")
-    public ResponseEntity<?> getCameraCommand() {
+    public ResponseEntity<?> getCameraCommand(
+            @RequestParam(value = "cmd", required = false) String cmd,
+            @RequestParam(value = "room", required = false) String room) {
+        if ("start_cam".equalsIgnoreCase(cmd) || "start".equalsIgnoreCase(cmd)) {
+            String r = (room != null && !room.isEmpty()) ? room : currentCameraCommand.roomCode();
+            currentCameraCommand = new CameraCommand(true, r, true, "B1-D1L", System.currentTimeMillis());
+        } else if ("stop".equalsIgnoreCase(cmd)) {
+            currentCameraCommand = new CameraCommand(false, currentCameraCommand.roomCode(), true, "B1-D1L", System.currentTimeMillis());
+        }
         return ResponseEntity.ok(currentCameraCommand);
     }
 
@@ -152,9 +160,10 @@ public class DeviceController {
         Map<String, Object> res = new HashMap<>(aiServerStatus);
         res.put("online", isOnline);
         res.put("commandActive", currentCameraCommand.active());
-        if (!isOnline) {
-            res.put("running", false);
-        }
+        boolean running = isOnline && (Boolean.TRUE.equals(res.get("running")) || Boolean.TRUE.equals(res.get("isRunning")));
+        res.put("running", running);
+        res.put("isRunning", running);
+        res.put("active", currentCameraCommand.active());
         return ResponseEntity.ok(res);
     }
 
