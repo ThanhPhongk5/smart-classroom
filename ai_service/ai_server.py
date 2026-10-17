@@ -494,7 +494,7 @@ class VideoProcessor:
                     self.frame_id = (self.frame_id + 1) % 1000000
 
                 now_f = time.time()
-                if now_f - getattr(self, 'last_frame_post', 0) > 0.35:
+                if now_f - getattr(self, 'last_frame_post', 0) > 0.18:
                     self.last_frame_post = now_f
                     f_bytes = self.current_frame
                     def _post_f(b):
