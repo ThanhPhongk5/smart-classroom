@@ -8,6 +8,8 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -185,5 +187,36 @@ public class DeviceController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
                 .body(latestFrame);
+    }
+
+    @GetMapping(value = "/camera-stream")
+    public ResponseEntity<StreamingResponseBody> streamCamera() {
+        StreamingResponseBody responseBody = outputStream -> {
+            long lastSent = 0;
+            byte[] boundary = "\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n".getBytes(StandardCharsets.UTF_8);
+            byte[] endBoundary = "\r\n".getBytes(StandardCharsets.UTF_8);
+
+            try {
+                while (!Thread.currentThread().isInterrupted()) {
+                    byte[] frame = latestFrame;
+                    if (frame != null && lastHeartbeat > lastSent && (System.currentTimeMillis() - lastHeartbeat) < 8000) {
+                        lastSent = lastHeartbeat;
+                        outputStream.write(boundary);
+                        outputStream.write(frame);
+                        outputStream.write(endBoundary);
+                        outputStream.flush();
+                    }
+                    Thread.sleep(30);
+                }
+            } catch (Exception ignored) {
+                // Client disconnected
+            }
+        };
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, "multipart/x-mixed-replace; boundary=frame")
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
+                .header("X-Accel-Buffering", "no")
+                .body(responseBody);
     }
 }

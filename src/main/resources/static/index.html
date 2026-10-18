@@ -1989,14 +1989,14 @@
         nextImg.onload = () => {
           if (isCameraRunning) {
             img.src = nextImg.src;
-            frameTimer = setTimeout(loadNextFrame, 150);
+            frameTimer = setTimeout(loadNextFrame, 40);
           } else {
             frameLoopActive = false;
           }
         };
         nextImg.onerror = () => {
           if (isCameraRunning) {
-            frameTimer = setTimeout(loadNextFrame, 350);
+            frameTimer = setTimeout(loadNextFrame, 200);
           } else {
             frameLoopActive = false;
           }
@@ -2048,7 +2048,14 @@
         badge.style.color = '#f87171';
         badge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
 
-        startFrameLoop();
+        // Priority 1: Persistent continuous MJPEG stream (zero latency)
+        const streamUrl = '/api/device/camera-stream';
+        if (!img.src || !img.src.includes('camera-stream')) {
+          img.src = streamUrl;
+          img.onerror = () => {
+            startFrameLoop();
+          };
+        }
       } else {
         frameLoopActive = false;
         if (frameTimer) { clearTimeout(frameTimer); frameTimer = null; }
