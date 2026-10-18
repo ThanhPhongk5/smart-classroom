@@ -1,13 +1,22 @@
-﻿@echo off
+@echo off
 chcp 65001 > nul
-title SMART CLASSROOM - AI YOLO11 SERVER
+title SMART CLASSROOM - MAY TRAM AI CAMERA
 echo ============================================================
-echo   SMART CLASSROOM - HE THONG CAMERA AI (YOLO11)
-echo   * Che do: CHO LENH BAT WEBCAM TU GIAO DIEN WEB
-echo   * Video Stream: http://localhost:5000/video_feed
-echo   * Cloud Web:    https://smart-classroom-pyvl.onrender.com
+echo       SMART CLASSROOM - MAY TRAM CAMERA AI THEO PHONG
 echo ============================================================
 echo.
+set ROOM_INPUT=%1
+if "%ROOM_INPUT%"=="" (
+    set /p ROOM_INPUT="Nhap ma phong hoc cho may nay (Nhan ENTER de mac dinh A101): "
+)
+if "%ROOM_INPUT%"=="" set ROOM_INPUT=A101
+echo.
+echo [XAC NHAN] May nay se phu trach Camera AI cho phong: %ROOM_INPUT%
+echo [INFO] Chi khi tren Web bat camera phong %ROOM_INPUT% thi webcam may nay moi mo.
+echo.
 cd /d "%~dp0"
-python ai_server.py
+if exist "ai_service\ai_server.py" (
+    cd /d "%~dp0ai_service"
+)
+python ai_server.py --room %ROOM_INPUT%
 pause

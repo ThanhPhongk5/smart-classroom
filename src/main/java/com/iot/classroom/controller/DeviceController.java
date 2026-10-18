@@ -31,10 +31,11 @@ public class DeviceController {
         long timestamp
     ) {}
 
-    private static volatile CameraCommand currentCameraCommand = new CameraCommand(false, "A101", true, "B1-D1L", System.currentTimeMillis());
-    private static final Map<String, Object> aiServerStatus = new ConcurrentHashMap<>();
-    private static volatile byte[] latestFrame = null;
-    private static volatile long lastHeartbeat = 0;
+    private static final Map<String, CameraCommand> roomCommands = new ConcurrentHashMap<>();
+    private static final Map<String, Map<String, Object>> roomAiStatus = new ConcurrentHashMap<>();
+    private static final Map<String, byte[]> roomFrames = new ConcurrentHashMap<>();
+    private static final Map<String, Long> roomFrameTimestamps = new ConcurrentHashMap<>();
+    private static final Map<String, Long> roomHeartbeats = new ConcurrentHashMap<>();
 
     public DeviceController(AutomationService automation, Repos.RoomRepo rooms,
                             Repos.BehaviorRepo behaviorRepo, Repos.SeatRepo seatRepo,
@@ -120,30 +121,32 @@ public class DeviceController {
         return ResponseEntity.ok(Map.of("status", "success"));
     }
 
-    // --- Remote camera command & status API ---
+    // --- Multi-room Remote camera command & status API ---
 
     @PostMapping("/camera-command")
     public ResponseEntity<?> setCameraCommand(@RequestBody Map<String, Object> req) {
         boolean active = Boolean.TRUE.equals(req.get("active"));
-        String roomCode = req.getOrDefault("roomCode", "A101").toString();
+        String roomCode = req.getOrDefault("roomCode", "A101").toString().trim().toUpperCase();
         boolean demoMode = !Boolean.FALSE.equals(req.get("demoMode"));
         String demoSeat = req.getOrDefault("demoSeat", "B1-D1L").toString();
 
-        currentCameraCommand = new CameraCommand(active, roomCode, demoMode, demoSeat, System.currentTimeMillis());
-        return ResponseEntity.ok(Map.of("status", "success", "command", currentCameraCommand));
+        CameraCommand cmd = new CameraCommand(active, roomCode, demoMode, demoSeat, System.currentTimeMillis());
+        roomCommands.put(roomCode, cmd);
+        return ResponseEntity.ok(Map.of("status", "success", "room", roomCode, "command", cmd));
     }
 
     @GetMapping("/camera-command")
     public ResponseEntity<?> getCameraCommand(
             @RequestParam(value = "cmd", required = false) String cmd,
-            @RequestParam(value = "room", required = false) String room) {
+            @RequestParam(value = "room", required = false, defaultValue = "A101") String room) {
+        String r = (room != null && !room.isBlank()) ? room.trim().toUpperCase() : "A101";
         if ("start_cam".equalsIgnoreCase(cmd) || "start".equalsIgnoreCase(cmd)) {
-            String r = (room != null && !room.isEmpty()) ? room : currentCameraCommand.roomCode();
-            currentCameraCommand = new CameraCommand(true, r, true, "B1-D1L", System.currentTimeMillis());
+            roomCommands.put(r, new CameraCommand(true, r, true, "B1-D1L", System.currentTimeMillis()));
         } else if ("stop".equalsIgnoreCase(cmd)) {
-            currentCameraCommand = new CameraCommand(false, currentCameraCommand.roomCode(), true, "B1-D1L", System.currentTimeMillis());
+            roomCommands.put(r, new CameraCommand(false, r, true, "B1-D1L", System.currentTimeMillis()));
         }
-        return ResponseEntity.ok(currentCameraCommand);
+        CameraCommand current = roomCommands.getOrDefault(r, new CameraCommand(false, r, true, "B1-D1L", 0));
+        return ResponseEntity.ok(current);
     }
 
     @PostMapping("/camera-heartbeat")
@@ -151,46 +154,61 @@ public class DeviceController {
             @RequestHeader(value = "X-Device-Key", required = false) String key,
             @RequestBody Map<String, Object> status) {
         if (!deviceKey.equals(key)) return ResponseEntity.status(401).body(Map.of("message", "Sai device key"));
-        aiServerStatus.putAll(status);
-        lastHeartbeat = System.currentTimeMillis();
-        return ResponseEntity.ok(Map.of("status", "success", "command", currentCameraCommand));
+        String roomCode = status.getOrDefault("room", status.getOrDefault("roomCode", "A101")).toString().trim().toUpperCase();
+        roomAiStatus.put(roomCode, status);
+        long now = System.currentTimeMillis();
+        roomHeartbeats.put(roomCode, now);
+        CameraCommand cmd = roomCommands.getOrDefault(roomCode, new CameraCommand(false, roomCode, true, "B1-D1L", 0));
+        return ResponseEntity.ok(Map.of("status", "success", "room", roomCode, "command", cmd));
     }
 
     @GetMapping("/camera-status")
-    public ResponseEntity<?> getCameraStatus() {
-        boolean isOnline = (System.currentTimeMillis() - lastHeartbeat) < 6000;
-        Map<String, Object> res = new HashMap<>(aiServerStatus);
+    public ResponseEntity<?> getCameraStatus(@RequestParam(value = "room", required = false, defaultValue = "A101") String room) {
+        String r = (room != null && !room.isBlank()) ? room.trim().toUpperCase() : "A101";
+        long lastHb = roomHeartbeats.getOrDefault(r, 0L);
+        boolean isOnline = (System.currentTimeMillis() - lastHb) < 7000;
+        Map<String, Object> res = new HashMap<>(roomAiStatus.getOrDefault(r, Map.of()));
+        CameraCommand cmd = roomCommands.getOrDefault(r, new CameraCommand(false, r, true, "B1-D1L", 0));
+        res.put("room", r);
         res.put("online", isOnline);
-        res.put("commandActive", currentCameraCommand.active());
+        res.put("commandActive", cmd.active());
         boolean running = isOnline && (Boolean.TRUE.equals(res.get("running")) || Boolean.TRUE.equals(res.get("isRunning")));
         res.put("running", running);
         res.put("isRunning", running);
-        res.put("active", currentCameraCommand.active());
+        res.put("active", cmd.active());
         return ResponseEntity.ok(res);
     }
 
     @PostMapping(value = "/camera-frame", consumes = MediaType.IMAGE_JPEG_VALUE)
     public ResponseEntity<?> uploadFrame(
             @RequestHeader(value = "X-Device-Key", required = false) String key,
+            @RequestParam(value = "room", required = false, defaultValue = "A101") String room,
             @RequestBody byte[] frameData) {
         if (!deviceKey.equals(key)) return ResponseEntity.status(401).body(Map.of("message", "Sai device key"));
-        latestFrame = frameData;
-        lastHeartbeat = System.currentTimeMillis();
-        return ResponseEntity.ok(Map.of("status", "success"));
+        String r = (room != null && !room.isBlank()) ? room.trim().toUpperCase() : "A101";
+        roomFrames.put(r, frameData);
+        long now = System.currentTimeMillis();
+        roomFrameTimestamps.put(r, now);
+        roomHeartbeats.put(r, now);
+        return ResponseEntity.ok(Map.of("status", "success", "room", r));
     }
 
     @GetMapping(value = "/camera-frame", produces = MediaType.IMAGE_JPEG_VALUE)
-    public ResponseEntity<byte[]> getLatestFrame() {
-        if (latestFrame == null || (System.currentTimeMillis() - lastHeartbeat) > 6000) {
+    public ResponseEntity<byte[]> getLatestFrame(@RequestParam(value = "room", required = false, defaultValue = "A101") String room) {
+        String r = (room != null && !room.isBlank()) ? room.trim().toUpperCase() : "A101";
+        byte[] frame = roomFrames.get(r);
+        long lastTime = roomFrameTimestamps.getOrDefault(r, 0L);
+        if (frame == null || (System.currentTimeMillis() - lastTime) > 8000) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok()
                 .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
-                .body(latestFrame);
+                .body(frame);
     }
 
     @GetMapping(value = "/camera-stream")
-    public ResponseEntity<StreamingResponseBody> streamCamera() {
+    public ResponseEntity<StreamingResponseBody> streamCamera(@RequestParam(value = "room", required = false, defaultValue = "A101") String room) {
+        final String r = (room != null && !room.isBlank()) ? room.trim().toUpperCase() : "A101";
         StreamingResponseBody responseBody = outputStream -> {
             long lastSent = 0;
             byte[] boundary = "\r\n--frame\r\nContent-Type: image/jpeg\r\n\r\n".getBytes(StandardCharsets.UTF_8);
@@ -198,9 +216,10 @@ public class DeviceController {
 
             try {
                 while (!Thread.currentThread().isInterrupted()) {
-                    byte[] frame = latestFrame;
-                    if (frame != null && lastHeartbeat > lastSent && (System.currentTimeMillis() - lastHeartbeat) < 8000) {
-                        lastSent = lastHeartbeat;
+                    byte[] frame = roomFrames.get(r);
+                    long frameTime = roomFrameTimestamps.getOrDefault(r, 0L);
+                    if (frame != null && frameTime > lastSent && (System.currentTimeMillis() - frameTime) < 8000) {
+                        lastSent = frameTime;
                         outputStream.write(boundary);
                         outputStream.write(frame);
                         outputStream.write(endBoundary);

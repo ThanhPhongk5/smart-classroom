@@ -1142,20 +1142,14 @@
         <div class="ai-stream-frame" id="streamContainer" style="position: relative; overflow: hidden; background: #0b1118; border-radius: 12px; min-height: 380px; display: flex; align-items: center; justify-content: center;">
           <div class="ai-stream-placeholder" id="streamPlaceholder">
             <div class="icon">📷</div>
-            <p style="font-size: 15px; font-weight: 600;">Camera AI đang tắt</p>
-            <p style="font-size: 12px; margin-top: 4px;">Nhấn nút "Bật Camera AI" bên dưới để kích hoạt camera nhận diện cử chỉ và hành vi</p>
+            <p id="camPlaceholderTitle" style="font-size: 15px; font-weight: 600;">Camera AI đang tắt</p>
+            <p id="camPlaceholderDesc" style="font-size: 12px; margin-top: 4px;">Nhấn nút "Bật Camera AI" bên dưới để kích hoạt camera phòng học nhận diện hành vi</p>
           </div>
-          <video id="localCamVideo" autoplay playsinline muted style="display: none; width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1);"></video>
-          <canvas id="aiOverlayCanvas" style="display: none; position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>
           <img id="aiStreamImg" style="display: none; width: 100%; height: 100%; object-fit: contain;" alt="AI Stream Feed">
         </div>
 
         <div class="ai-viewport-footer" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
           <div class="ai-cam-actions" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-            <select id="camSourceSelect" style="padding: 8px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; border: 1.5px solid #cbd5e1; background: #f8fafc; color: var(--navy); cursor: pointer;">
-              <option value="device" selected>📱 Camera máy này (Điện thoại / Laptop)</option>
-              <option value="remote">🖥️ Camera phòng học (Máy trạm AI run_ai.bat)</option>
-            </select>
             <button class="btn-action start-cam" id="btnStartCam">
               <span>▶</span> Bật Camera AI
             </button>
@@ -1164,7 +1158,7 @@
             </button>
           </div>
           <div style="font-size: 12px; color: #94a3b8;">
-            * Camera AI phân tích trực tiếp: Nhận diện người, phát hiện dùng điện thoại, giơ tay phát biểu, độ tập trung.
+            * Camera AI phân tích trực tiếp theo phòng: Nhận diện người, phát hiện dùng điện thoại, giơ tay phát biểu, độ tập trung.
           </div>
         </div>
       </div>
@@ -1975,246 +1969,26 @@
     }
     $('chartHours').onchange = loadEnvChart;
 
-    // ================= 2. CAMERA AI & SEATING MAP (COMBINED TAB) =================
+    // ================= 2. CAMERA AI & SEATING MAP (THEO PHONG HOC) =================
     let frameLoopActive = false;
     let frameTimer = null;
-    let isDeviceCamActive = false;
-    let localMediaStream = null;
-    let localAnalysisInterval = null;
-    let offscreenCanvas = null;
 
-    // --- A. CAMERA TRUC TIEP TREN THIET BI (DIEN THOAI / LAPTOP - HUONG 1) ---
-    async function startDeviceCamera() {
-      try {
-        showToast('Đang mở máy ảnh thiết bị...');
-        const video = $('localCamVideo');
-        const overlay = $('aiOverlayCanvas');
-        const placeholder = $('streamPlaceholder');
-        const img = $('aiStreamImg');
-        const badge = $('aiStreamStatusBadge');
-
-        // Yeu cau quyen mo Camera thiet bi (uu tien camera truoc facingMode user tren dien thoai)
-        const constraints = {
-          video: {
-            facingMode: 'user',
-            width: { ideal: 640 },
-            height: { ideal: 480 }
-          },
-          audio: false
-        };
-
-        localMediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-        video.srcObject = localMediaStream;
-        await video.play();
-
-        isDeviceCamActive = true;
-        isCameraRunning = true;
-
-        placeholder.style.display = 'none';
-        img.style.display = 'none';
-        video.style.display = 'block';
-        overlay.style.display = 'block';
-
-        badge.textContent = 'TRỰC TIẾP (MÁY NÀY)';
-        badge.style.background = 'rgba(34, 197, 94, 0.2)';
-        badge.style.color = '#4ade80';
-        badge.style.borderColor = 'rgba(34, 197, 94, 0.4)';
-        showToast('Máy ảnh thiết bị đã bật! Đang nhận diện AI...');
-
-        // Khoi tao offscreen canvas chup frame
-        if (!offscreenCanvas) {
-          offscreenCanvas = document.createElement('canvas');
-        }
-
-        // Vong lap chup frame va phan tich AI moi 300ms
-        let isSendingFrame = false;
-        if (localAnalysisInterval) clearInterval(localAnalysisInterval);
-        localAnalysisInterval = setInterval(async () => {
-          if (!isDeviceCamActive || isSendingFrame || !video.videoWidth) return;
-          isSendingFrame = true;
-
-          try {
-            offscreenCanvas.width = 416;
-            offscreenCanvas.height = 312;
-            const oCtx = offscreenCanvas.getContext('2d');
-            oCtx.drawImage(video, 0, 0, 416, 312);
-
-            offscreenCanvas.toBlob(async (blob) => {
-              try {
-                if (!blob || !isDeviceCamActive) { isSendingFrame = false; return; }
-
-                // 1. Neu dang o localhost HTTP: goi thang den cong 5000 de toc do cao nhat
-                let analysis = null;
-                if (window.location.protocol === 'http:') {
-                  try {
-                    const fd = new FormData();
-                    fd.append('frame', blob, 'frame.jpg');
-                    fd.append('room', currentRoomCode);
-                    fd.append('demoMode', 'true');
-                    const localRes = await fetch('http://localhost:5000/api/analyze_frame', {
-                      method: 'POST',
-                      body: fd,
-                      signal: AbortSignal.timeout(1200)
-                    });
-                    if (localRes.ok) analysis = await localRes.json();
-                  } catch (_) {}
-                }
-
-                // 2. Neu tren Cloud Render: gui len backend /api/device/client-frame
-                if (!analysis) {
-                  const cRes = await fetch('/api/device/client-frame', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'image/jpeg' },
-                    body: blob
-                  });
-                  if (cRes.ok) {
-                    const cData = await cRes.json();
-                    if (cData && cData.hasAnalysis) {
-                      analysis = cData;
-                    }
-                  }
-                }
-
-                if (analysis && isDeviceCamActive) {
-                  drawClientAiOverlay(analysis);
-                }
-              } catch (_) {
-              } finally {
-                isSendingFrame = false;
-              }
-            }, 'image/jpeg', 0.65);
-          } catch (_) {
-            isSendingFrame = false;
-          }
-        }, 300);
-
-      } catch (err) {
-        console.error('Loi mo camera thiet bi:', err);
-        showToast('Không thể mở camera thiết bị: ' + (err.message || 'Hãy cấp quyền camera trong trình duyệt'));
-      }
-    }
-
-    function stopDeviceCamera() {
-      isDeviceCamActive = false;
-      if (localAnalysisInterval) {
-        clearInterval(localAnalysisInterval);
-        localAnalysisInterval = null;
-      }
-      if (localMediaStream) {
-        localMediaStream.getTracks().forEach(t => t.stop());
-        localMediaStream = null;
-      }
-
-      const video = $('localCamVideo');
-      const overlay = $('aiOverlayCanvas');
-      const placeholder = $('streamPlaceholder');
-      const badge = $('aiStreamStatusBadge');
-
-      if (video) { video.srcObject = null; video.style.display = 'none'; }
-      if (overlay) {
-        const ctx = overlay.getContext('2d');
-        ctx.clearRect(0, 0, overlay.width, overlay.height);
-        overlay.style.display = 'none';
-      }
-      placeholder.style.display = 'block';
-
-      badge.textContent = 'ĐANG TẮT';
-      badge.style.background = 'rgba(100, 116, 139, 0.2)';
-      badge.style.color = '#94a3b8';
-      badge.style.borderColor = 'rgba(100, 116, 139, 0.3)';
-      $('instantAlertBox').style.display = 'none';
-    }
-
-    function drawClientAiOverlay(analysis) {
-      const canvas = $('aiOverlayCanvas');
-      const video = $('localCamVideo');
-      if (!canvas || !video || !isDeviceCamActive) return;
-
-      const vw = video.videoWidth || 640;
-      const vh = video.videoHeight || 480;
-      canvas.width = vw;
-      canvas.height = vh;
-
-      const ctx = canvas.getContext('2d');
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Tinh ti le giua anh 416x312 gui di va video thuc te
-      const scaleX = vw / 416;
-      const scaleY = vh / 312;
-
-      // 1. Ve hop thoai nguoi
-      const boxes = analysis.boxes || [];
-      boxes.forEach(b => {
-        if (!b.box) return;
-        const [x1, y1, x2, y2] = b.box.map((v, i) => i % 2 === 0 ? v * scaleX : v * scaleY);
-        // Do video bi lat guong (scaleX -1), lat nguoc toa do x de hop khop khuon mat
-        const flippedX1 = vw - x2;
-        const flippedX2 = vw - x1;
-
-        const col = b.color ? `rgb(${b.color[0]}, ${b.color[1]}, ${b.color[2]})` : '#3b82f6';
-        ctx.strokeStyle = col;
-        ctx.lineWidth = 3;
-        ctx.strokeRect(flippedX1, y1, flippedX2 - flippedX1, y2 - y1);
-
-        ctx.font = 'bold 15px sans-serif';
-        const txt = b.label || '';
-        const tw = ctx.measureText(txt).width;
-        ctx.fillStyle = col;
-        ctx.fillRect(flippedX1, Math.max(0, y1 - 26), tw + 14, 26);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(txt, flippedX1 + 6, Math.max(18, y1 - 7));
-      });
-
-      // 2. Ve hop thoai dien thoai
-      const phones = analysis.phones || [];
-      phones.forEach(ph => {
-        if (!ph.box) return;
-        const [x1, y1, x2, y2] = ph.box.map((v, i) => i % 2 === 0 ? v * scaleX : v * scaleY);
-        const flippedX1 = vw - x2;
-        const flippedX2 = vw - x1;
-
-        ctx.strokeStyle = '#ef4444';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(flippedX1, y1, flippedX2 - flippedX1, y2 - y1);
-
-        const txt = `Điện thoại ${Math.round((ph.conf || 0.8) * 100)}%`;
-        ctx.font = 'bold 13px sans-serif';
-        const tw = ctx.measureText(txt).width;
-        ctx.fillStyle = '#ef4444';
-        ctx.fillRect(flippedX1, Math.max(0, y1 - 22), tw + 10, 22);
-        ctx.fillStyle = '#ffffff';
-        ctx.fillText(txt, flippedX1 + 4, Math.max(16, y1 - 6));
-      });
-
-      // 3. Cap nhat thong so HUD & Canh bao
-      if (analysis.totalStudents != null) $('camPersonCount').textContent = analysis.totalStudents;
-      if (analysis.attentionScore != null) $('aiScoreNumber').textContent = Math.round(analysis.attentionScore) + '%';
-      $('camFpsText').textContent = '24.0';
-
-      if (analysis.phoneAlert) {
-        $('instantAlertMsg').textContent = 'CẢNH BÁO: Phát hiện học sinh đang sử dụng điện thoại!';
-        $('instantAlertBox').style.display = 'flex';
-      } else {
-        $('instantAlertBox').style.display = 'none';
-      }
-    }
-
-    // --- B. CAMERA PHONG HOC TU XA (MAY TRAM AI RUN_AI.BAT) ---
     function startFrameLoop() {
       if (frameLoopActive) return;
       frameLoopActive = true;
 
       function loadNextFrame() {
-        if (!isCameraRunning || isDeviceCamActive) {
+        if (!isCameraRunning) {
           frameLoopActive = false;
           if (frameTimer) clearTimeout(frameTimer);
           return;
         }
 
+        const room = currentRoomCode || 'A101';
         const img = $('aiStreamImg');
         const nextImg = new Image();
         nextImg.onload = () => {
-          if (isCameraRunning && !isDeviceCamActive) {
+          if (isCameraRunning && (currentRoomCode || 'A101') === room) {
             img.src = nextImg.src;
             frameTimer = setTimeout(loadNextFrame, 120);
           } else {
@@ -2222,62 +1996,70 @@
           }
         };
         nextImg.onerror = () => {
-          if (isCameraRunning && !isDeviceCamActive) {
-            frameTimer = setTimeout(loadNextFrame, 200);
+          if (isCameraRunning && (currentRoomCode || 'A101') === room) {
+            frameTimer = setTimeout(loadNextFrame, 250);
           } else {
             frameLoopActive = false;
           }
         };
-        nextImg.src = '/api/device/camera-frame?t=' + Date.now();
+        nextImg.src = '/api/device/camera-frame?room=' + encodeURIComponent(room) + '&t=' + Date.now();
       }
 
       loadNextFrame();
     }
 
     async function checkCameraStatus() {
-      if (isDeviceCamActive) return;
       try {
+        const room = currentRoomCode || 'A101';
         let localStatus = null;
-        if (window.location.protocol === 'http:') {
+        if (window.location.protocol === 'http:' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
           try {
             const lRes = await fetch('http://localhost:5000/api/status', { signal: AbortSignal.timeout(600) });
-            if (lRes.ok) localStatus = await lRes.json();
+            if (lRes.ok) {
+              const ls = await lRes.json();
+              if (ls.room === room) localStatus = ls;
+            }
           } catch (_) {}
         }
 
-        const res = await fetchApi('/api/device/camera-status').catch(() => null);
+        const res = await fetchApi('/api/device/camera-status?room=' + encodeURIComponent(room)).catch(() => null);
 
         let running = false;
+        let online = false;
         let info = {};
         if (localStatus && localStatus.running) {
           running = true;
+          online = true;
           info = localStatus;
         } else if (res) {
-          running = !!(res.running || res.isRunning || res.active || res.commandActive);
+          online = !!res.online;
+          running = !!(res.running || res.isRunning);
           info = res;
         }
 
         isCameraRunning = running;
-        updateCameraUi(running, info);
+        updateCameraUi(running, online, info);
       } catch (_) {}
     }
 
-    function updateCameraUi(running, info = {}) {
-      if (isDeviceCamActive) return;
+    function updateCameraUi(running, online, info = {}) {
       isCameraRunning = running;
       const placeholder = $('streamPlaceholder');
+      const placeholderTitle = $('camPlaceholderTitle');
+      const placeholderDesc = $('camPlaceholderDesc');
       const img = $('aiStreamImg');
       const badge = $('aiStreamStatusBadge');
+      const room = currentRoomCode || 'A101';
 
       if (running) {
         placeholder.style.display = 'none';
         img.style.display = 'block';
-        badge.textContent = 'TRỰC TIẾP HD';
+        badge.textContent = `TRỰC TIẾP (${room})`;
         badge.style.background = 'rgba(239, 68, 68, 0.2)';
         badge.style.color = '#f87171';
         badge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
 
-        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        if ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (!info.room || info.room === room)) {
           if (!img.src || !img.src.includes(':5000')) {
             img.src = 'http://localhost:5000/video_feed';
           }
@@ -2290,10 +2072,22 @@
         placeholder.style.display = 'block';
         img.style.display = 'none';
         img.src = '';
-        badge.textContent = 'ĐANG TẮT';
-        badge.style.background = 'rgba(100, 116, 139, 0.2)';
-        badge.style.color = '#94a3b8';
-        badge.style.borderColor = 'rgba(100, 116, 139, 0.3)';
+
+        if (!online) {
+          badge.textContent = 'CHƯA KẾT NỐI AI';
+          badge.style.background = 'rgba(234, 179, 8, 0.15)';
+          badge.style.color = '#eab308';
+          badge.style.borderColor = 'rgba(234, 179, 8, 0.3)';
+          if (placeholderTitle) placeholderTitle.textContent = `Máy trạm AI phòng ${room} chưa kết nối`;
+          if (placeholderDesc) placeholderDesc.textContent = `Vui lòng khởi động run_ai.bat cho phòng ${room} trên máy tính phụ trách phòng này.`;
+        } else {
+          badge.textContent = `SẴN SÀNG (${room})`;
+          badge.style.background = 'rgba(100, 116, 139, 0.2)';
+          badge.style.color = '#94a3b8';
+          badge.style.borderColor = 'rgba(100, 116, 139, 0.3)';
+          if (placeholderTitle) placeholderTitle.textContent = `Camera AI phòng ${room} đang tắt`;
+          if (placeholderDesc) placeholderDesc.textContent = 'Nhấn nút "Bật Camera AI" bên dưới để kích hoạt camera phòng học.';
+        }
       }
 
       if (info.fps != null) $('camFpsText').textContent = typeof info.fps === 'number' ? info.fps.toFixed(1) : info.fps;
@@ -2302,54 +2096,43 @@
     }
 
     $('btnStartCam').onclick = async () => {
-      const src = $('camSourceSelect') ? $('camSourceSelect').value : 'device';
-      if (src === 'device') {
-        // HUONG 1: Mo Camera truc tiep cua thiet bi nay (Dien thoai / Laptop dang xem)
-        startDeviceCamera();
-      } else {
-        // HUONG 2: Mo Camera phong hoc co dinh (May tram AI)
-        if (isDeviceCamActive) stopDeviceCamera();
-        try {
-          showToast('Đang kích hoạt camera phòng học...');
-          if (window.location.protocol === 'http:') {
-            fetch('http://localhost:5000/api/webcam/start', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ room: currentRoomCode, demoMode: true })
-            }).catch(() => {});
-          }
-          await fetchApi('/api/device/camera-command?cmd=start_cam&room=' + currentRoomCode).catch(() => {});
-          await fetchApi('/api/device/camera-command', {
+      const room = currentRoomCode || 'A101';
+      try {
+        showToast(`Đang kích hoạt camera phòng ${room}...`);
+        if (window.location.protocol === 'http:' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+          fetch('http://localhost:5000/api/webcam/start', {
             method: 'POST',
-            body: { active: true, roomCode: currentRoomCode, demoMode: true }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ room: room, demoMode: true })
           }).catch(() => {});
-
-          showToast('Đã gửi lệnh bật Camera phòng học!');
-          updateCameraUi(true);
-          setTimeout(checkCameraStatus, 800);
-        } catch (e) {
-          showToast(e.message);
         }
+        await fetchApi('/api/device/camera-command?cmd=start_cam&room=' + encodeURIComponent(room)).catch(() => {});
+        await fetchApi('/api/device/camera-command', {
+          method: 'POST',
+          body: { active: true, roomCode: room, demoMode: true }
+        }).catch(() => {});
+
+        showToast(`Đã gửi lệnh bật Camera phòng ${room}!`);
+        updateCameraUi(true, true, { room: room });
+        setTimeout(checkCameraStatus, 800);
+      } catch (e) {
+        showToast(e.message);
       }
     };
 
     $('btnStopCam').onclick = async () => {
-      if (isDeviceCamActive) {
-        stopDeviceCamera();
-        showToast('Đã tắt camera thiết bị');
-        return;
-      }
+      const room = currentRoomCode || 'A101';
       try {
-        if (window.location.protocol === 'http:') {
+        if (window.location.protocol === 'http:' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
           fetch('http://localhost:5000/api/webcam/stop', { method: 'POST' }).catch(() => {});
         }
-        await fetchApi('/api/device/camera-command?cmd=stop').catch(() => {});
+        await fetchApi('/api/device/camera-command?cmd=stop&room=' + encodeURIComponent(room)).catch(() => {});
         await fetchApi('/api/device/camera-command', {
           method: 'POST',
-          body: { active: false, roomCode: currentRoomCode }
+          body: { active: false, roomCode: room }
         }).catch(() => {});
-        showToast('Đã tắt Camera AI');
-        updateCameraUi(false);
+        showToast(`Đã tắt Camera AI phòng ${room}`);
+        updateCameraUi(false, true, { room: room });
       } catch (e) {
         showToast(e.message);
       }

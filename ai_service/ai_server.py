@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import threading
+import argparse
 import requests
 import cv2
 import numpy as np
@@ -16,6 +17,13 @@ from flask import Flask, Response, request, jsonify
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from ultralytics import YOLO
+
+parser = argparse.ArgumentParser(description="Smart Classroom AI Camera Node")
+parser.add_argument('--room', default=os.environ.get('ROOM_CODE', 'A101'), help="Ma phong hoc AI phu trach")
+parser.add_argument('--cam', default=0, type=int, help="Chi so camera")
+args, _ = parser.parse_known_args()
+ASSIGNED_ROOM = (args.room or 'A101').strip().upper()
+DEFAULT_CAM_ID = args.cam
 
 # Toi uu luong CPU cho PyTorch
 torch.set_num_threads(min(6, os.cpu_count() or 6))
@@ -515,7 +523,7 @@ class VideoProcessor:
             last_fid = fid
             try:
                 self.session.post(
-                    f'{BACKEND_BASE_URL}/api/device/camera-frame',
+                    f'{BACKEND_BASE_URL}/api/device/camera-frame?room={self.room_code}',
                     data=f_bytes,
                     headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'image/jpeg'},
                     timeout=0.8
@@ -568,6 +576,7 @@ class VideoProcessor:
 
 
 processor = VideoProcessor()
+processor.room_code = ASSIGNED_ROOM
 
 
 def generate_frames():
@@ -712,6 +721,10 @@ def get_status():
         'demoSeat': processor.demo_seat_code,
         'fps': round(processor.fps, 1),
         'totalStudents': processor.total_students,
+        'attentionScore': round(processor.attention_score, 1)
+    })
+
+
 def process_single_frame(frame, room_code='A101', demo_mode=True, demo_seat='B1-D1L'):
     """Ham phan tich frame doc lap phuc vu Camera tren thiet bi (Dien thoai / Web client - Huong 1)"""
     h, w, _ = frame.shape
@@ -928,14 +941,15 @@ last_cmd_timestamp = 0
 
 
 def _cloud_listener():
-    """Lang nghe lenh Bat/Tat Webcam truc tiep tu Web Dashboard va gui Heartbeat"""
+    """Lang nghe lenh Bat/Tat Webcam truc tiep tu Web Dashboard va gui Heartbeat theo phong"""
     global last_cmd_timestamp
     print(f'[INFO] AI Server da ket noi Cloud: {BACKEND_BASE_URL}')
-    print('[INFO] Che do: CHO LENH TU WEB (Webcam chi bat khi ban nhan nut [Bat Camera AI] tren Web)!')
+    print(f'[INFO] Phu trach phong hoc: [{processor.room_code}]')
+    print(f'[INFO] Che do: CHO LENH TU WEB (Webcam chi bat khi co lenh bat cam phong [{processor.room_code}])!')
 
-    # Lay timestamp lenh hien tai tren Cloud de bo qua cac thao tac cu
+    # Lay timestamp lenh hien tai cua phong tren Cloud de bo qua cac thao tac cu
     try:
-        r0 = requests.get(f'{BACKEND_BASE_URL}/api/device/camera-command', timeout=2.5)
+        r0 = requests.get(f'{BACKEND_BASE_URL}/api/device/camera-command?room={processor.room_code}', timeout=2.5)
         if r0.status_code == 200:
             last_cmd_timestamp = r0.json().get('timestamp', 0)
     except Exception:
@@ -960,44 +974,41 @@ def _cloud_listener():
                               timeout=2.0)
             if r.status_code == 200:
                 cmd = r.json().get('command', {})
+                cmd_room = cmd.get('roomCode', '').strip().upper()
                 cmd_ts = cmd.get('timestamp', 0)
                 cmd_active = cmd.get('active', False)
 
-                # Chi xu ly khi co lenh moi duoc bam tren Web (cmd_ts > last_cmd_timestamp)
-                if cmd_ts > last_cmd_timestamp:
+                # CHI XU LY KHI CO LENH MOI VA DUNG CHO PHONG MAY NAY PHU TRACH!
+                if cmd_room == processor.room_code and cmd_ts > last_cmd_timestamp:
                     last_cmd_timestamp = cmd_ts
                     if cmd_active and not processor.is_running:
-                        room = cmd.get('roomCode', 'A101')
                         demo_mode = cmd.get('demoMode', True)
                         demo_seat = cmd.get('demoSeat', 'B1-D1L')
-                        print(f'\n>>> [WEB] NHAN LENH BAT WEBCAM (Phong: {room}, Cho: {demo_seat}) <<<')
-                        processor.start_webcam(0, room, demo_mode, demo_seat)
+                        print(f'\n>>> [WEB] NHAN LENH BAT WEBCAM CHO PHONG [{processor.room_code}] (Cho: {demo_seat}) <<<')
+                        processor.start_webcam(DEFAULT_CAM_ID, processor.room_code, demo_mode, demo_seat)
                     elif not cmd_active and processor.is_running:
-                        print('\n>>> [WEB] NHAN LENH TAT WEBCAM <<<')
+                        print(f'\n>>> [WEB] NHAN LENH TAT WEBCAM CHO PHONG [{processor.room_code}] <<<')
                         processor.stop()
         except Exception:
             pass
 
 
 if __name__ == '__main__':
-    print('=' * 60)
-    print('  SMART CLASSROOM HYBRID AI SERVER - STABLE REALTIME ENGINE')
-    print('  * CHE DO: CHO LENH BAT WEBCAM TU GIAO DIEN WEB')
-    print('  * Loai bo 100% bao dong gia dien thoai (Nhan dien chuan xac)')
-    print('  * Dong bo truc tiep Cloud Render & Localhost')
-    print(f'  * Cloud endpoint: {BACKEND_BASE_URL}')
-    print('  * Video stream:  http://localhost:5000/video_feed')
-    print('  * Status API:    http://localhost:5000/api/status')
-    print('============================================================')
-    print('[INFO] AI Server da san sang! Dang o che do CHO LENH.')
-    print('[INFO] Vui long mo Web Dashboard va nhan nut [Bat Camera AI] de mo camera!')
-    print('=' * 60)
+    print('=' * 65)
+    print('   SMART CLASSROOM - MAY TRAM CAMERA AI THEO PHONG')
+    print(f'   * PHONG HOC PHU TRACH: [{processor.room_code}]')
+    print(f'   * CHE DO: CHO LENH BAT WEBCAM CHO PHONG [{processor.room_code}]')
+    print('   * Nhan dien: Gio tay, Dung dien thoai, Do tap trung')
+    print(f'   * Cloud Server: {BACKEND_BASE_URL}')
+    print(f'   * Video stream:  http://localhost:5000/video_feed')
+    print(f'   * Status API:    http://localhost:5000/api/status')
+    print('=================================================================')
+    print(f'[INFO] San sang! Khi giao dien Web xem phong [{processor.room_code}] va bat cam,')
+    print('       may nay se tu dong bat webcam de truyen hinh anh len he thong.')
+    print('=================================================================')
 
     # 1. Khoi dong thread lang nghe Cloud
     threading.Thread(target=_cloud_listener, daemon=True).start()
 
-    # 2. Khoi dong thread ho tro Camera Dien thoai / Web Client
-    threading.Thread(target=_client_frame_worker, daemon=True).start()
-
-    # 3. Chay Flask Server
+    # 2. Chay Flask Server
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
