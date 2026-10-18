@@ -577,7 +577,7 @@ def generate_frames():
             frame = processor.current_frame
             fid = getattr(processor, 'frame_id', 0)
 
-        if frame is not None:
+        if frame is not None and processor.is_running:
             if fid != last_id:
                 last_id = fid
                 yield (b'--frame\r\n'
@@ -585,14 +585,14 @@ def generate_frames():
             time.sleep(0.01)
         else:
             blank = np.zeros((480, 640, 3), dtype=np.uint8)
-            cv2.putText(blank, 'CAMERA DANG KHOI DONG...', (180, 220),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (120, 140, 160), 2)
-            cv2.putText(blank, 'Vui long cho giay lat...', (230, 260),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (90, 105, 120), 1)
+            cv2.putText(blank, 'CAMERA AI DANG O CHE DO CHO', (130, 220),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (120, 160, 200), 2)
+            cv2.putText(blank, 'Nhan nut "Bat Camera AI" tren Web de kich hoat', (110, 260),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.50, (90, 120, 150), 1)
             ret_enc, blank_jpg = cv2.imencode('.jpg', blank)
             yield (b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + blank_jpg.tobytes() + b'\r\n')
-            time.sleep(0.3)
+            time.sleep(0.4)
 
 
 @app.route('/video_feed')
@@ -607,12 +607,14 @@ def video_feed():
 
 @app.route('/api/webcam/start', methods=['POST'])
 def start_webcam():
+    global last_cmd_timestamp
     data = request.get_json(silent=True) or {}
     cam_id = int(data.get('source', 0))
     room_code = data.get('room', 'A101')
     demo_mode = data.get('demoMode', True)
     demo_seat = data.get('demoSeat', 'B1-D1L')
     ok, msg = processor.start_webcam(cam_id, room_code, demo_mode, demo_seat)
+    last_cmd_timestamp = int(time.time() * 1000)
     return jsonify({
         'success': ok,
         'message': msg,
@@ -624,7 +626,9 @@ def start_webcam():
 
 @app.route('/api/webcam/stop', methods=['POST'])
 def stop_feed():
+    global last_cmd_timestamp
     processor.stop()
+    last_cmd_timestamp = int(time.time() * 1000)
     return jsonify({'success': True, 'message': 'Da tat luong video'})
 
 
@@ -685,25 +689,26 @@ def get_status():
     })
 
 
-def _cloud_listener():
-    """Lang nghe lenh va gui Heartbeat len Cloud Backend"""
-    print(f'[INFO] AI Server da ket noi Cloud: {BACKEND_BASE_URL}')
-    
-    # Thong bao lenh active cho Cloud de Web Dashboard hien thi TRUC TIEP ngay
-    try:
-        requests.post(
-            f'{BACKEND_BASE_URL}/api/device/camera-command',
-            json={'active': True, 'roomCode': processor.room_code, 'demoMode': processor.demo_mode, 'demoSeat': processor.demo_seat_code},
-            headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'application/json'},
-            timeout=2.0
-        )
-    except Exception:
-        pass
+last_cmd_timestamp = 0
 
-    last_cmd_timestamp = 0
+
+def _cloud_listener():
+    """Lang nghe lenh Bat/Tat Webcam truc tiep tu Web Dashboard va gui Heartbeat"""
+    global last_cmd_timestamp
+    print(f'[INFO] AI Server da ket noi Cloud: {BACKEND_BASE_URL}')
+    print('[INFO] Che do: CHO LENH TU WEB (Webcam chi bat khi ban nhan nut [Bat Camera AI] tren Web)!')
+
+    # Lay timestamp lenh hien tai tren Cloud de bo qua cac thao tac cu
+    try:
+        r0 = requests.get(f'{BACKEND_BASE_URL}/api/device/camera-command', timeout=2.5)
+        if r0.status_code == 200:
+            last_cmd_timestamp = r0.json().get('timestamp', 0)
+    except Exception:
+        last_cmd_timestamp = int(time.time() * 1000)
+
     while True:
         try:
-            time.sleep(1.2)
+            time.sleep(1.0)
             status_payload = {
                 'running': processor.is_running,
                 'mode': processor.mode,
@@ -722,18 +727,19 @@ def _cloud_listener():
                 cmd = r.json().get('command', {})
                 cmd_ts = cmd.get('timestamp', 0)
                 cmd_active = cmd.get('active', False)
-                # Chi xu ly lenh dieu khien khi co timestamp moi hon
-                if cmd_ts > last_cmd_timestamp and last_cmd_timestamp > 0:
+
+                # Chi xu ly khi co lenh moi duoc bam tren Web (cmd_ts > last_cmd_timestamp)
+                if cmd_ts > last_cmd_timestamp:
+                    last_cmd_timestamp = cmd_ts
                     if cmd_active and not processor.is_running:
                         room = cmd.get('roomCode', 'A101')
                         demo_mode = cmd.get('demoMode', True)
                         demo_seat = cmd.get('demoSeat', 'B1-D1L')
-                        print(f'\n>>> [LENH MOI TU WEB] BAT WEBCAM ({room}, {demo_seat}) <<<')
+                        print(f'\n>>> [WEB] NHAN LENH BAT WEBCAM (Phong: {room}, Cho: {demo_seat}) <<<')
                         processor.start_webcam(0, room, demo_mode, demo_seat)
                     elif not cmd_active and processor.is_running:
-                        print('\n>>> [LENH MOI TU WEB] TAT WEBCAM <<<')
+                        print('\n>>> [WEB] NHAN LENH TAT WEBCAM <<<')
                         processor.stop()
-                last_cmd_timestamp = max(last_cmd_timestamp, cmd_ts)
         except Exception:
             pass
 
@@ -741,24 +747,19 @@ def _cloud_listener():
 if __name__ == '__main__':
     print('=' * 60)
     print('  SMART CLASSROOM HYBRID AI SERVER - STABLE REALTIME ENGINE')
-    print('  * Tu dong mo Webcam laptop (Camera 0) cho Thuyet trinh & Nhan dien')
+    print('  * CHE DO: CHO LENH BAT WEBCAM TU GIAO DIEN WEB')
     print('  * Loai bo 100% bao dong gia dien thoai (Nhan dien chuan xac)')
     print('  * Dong bo truc tiep Cloud Render & Localhost')
     print(f'  * Cloud endpoint: {BACKEND_BASE_URL}')
     print('  * Video stream:  http://localhost:5000/video_feed')
     print('  * Status API:    http://localhost:5000/api/status')
+    print('============================================================')
+    print('[INFO] AI Server da san sang! Dang o che do CHO LENH.')
+    print('[INFO] Vui long mo Web Dashboard va nhan nut [Bat Camera AI] de mo camera!')
     print('=' * 60)
 
-    # 1. Tu dong bat Webcam ngay khi khoi dong
-    print('[INFO] Dang tu dong kich hoat Webcam laptop (Camera 0)...')
-    ok, msg = processor.start_webcam(0, 'A101', True, 'B1-D1L')
-    if ok:
-        print('[SUCCESS] Webcam da bat san sang! Khong can phai bam bat tren web.')
-    else:
-        print(f'[WARN] Khong the tu bat webcam: {msg}')
-
-    # 2. Khoi dong thread lang nghe Cloud
+    # 1. Khoi dong thread lang nghe Cloud
     threading.Thread(target=_cloud_listener, daemon=True).start()
 
-    # 3. Chay Flask Server
+    # 2. Chay Flask Server
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
