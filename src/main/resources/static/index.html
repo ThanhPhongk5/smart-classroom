@@ -1989,7 +1989,7 @@
         nextImg.onload = () => {
           if (isCameraRunning) {
             img.src = nextImg.src;
-            frameTimer = setTimeout(loadNextFrame, 40);
+            frameTimer = setTimeout(loadNextFrame, 120);
           } else {
             frameLoopActive = false;
           }
@@ -2048,13 +2048,14 @@
         badge.style.color = '#f87171';
         badge.style.borderColor = 'rgba(239, 68, 68, 0.4)';
 
-        // Priority 1: Persistent continuous MJPEG stream (zero latency)
-        const streamUrl = '/api/device/camera-stream';
-        if (!img.src || !img.src.includes('camera-stream')) {
-          img.src = streamUrl;
-          img.onerror = () => {
-            startFrameLoop();
-          };
+        // Neu mo web tren localhost: lay truc tiep tu cong 5000 (30 FPS, 0ms latency)
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+          if (!img.src || !img.src.includes(':5000')) {
+            img.src = 'http://localhost:5000/video_feed';
+          }
+        } else {
+          // Neu mo tren Cloud (Render): dung frame loop on dinh khong gay nghen mang
+          startFrameLoop();
         }
       } else {
         frameLoopActive = false;

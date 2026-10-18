@@ -380,9 +380,9 @@ class VideoProcessor:
             detected_phones = []
             boxes_to_draw = []
 
-            # 1. Phat hien dien thoai qua YOLO11 Object Detection (COCO cell phone 67, conf=0.18 sieu nhay)
+            # 1. Phat hien dien thoai qua YOLO11 Object Detection (COCO cell phone 67, conf=0.15 sieu nhay)
             if obj_model is not None:
-                obj_results = obj_model.predict(frame, classes=[67, 73], conf=0.18, imgsz=320, verbose=False)
+                obj_results = obj_model.predict(frame, classes=[67, 73], conf=0.15, imgsz=416, verbose=False)
                 if len(obj_results) > 0 and obj_results[0].boxes is not None:
                     for b in obj_results[0].boxes:
                         cid = int(b.cls[0].item())
@@ -395,7 +395,7 @@ class VideoProcessor:
             # 2. Phat hien cac hanh vi lop hoc qua bestYolo11n.pt
             behav_boxes = []
             if behavior_model is not None:
-                b_results = behavior_model.predict(frame, conf=0.20, imgsz=320, verbose=False)
+                b_results = behavior_model.predict(frame, conf=0.20, imgsz=416, verbose=False)
                 if len(b_results) > 0 and b_results[0].boxes is not None:
                     for b in b_results[0].boxes:
                         cid = int(b.cls[0].item())
@@ -523,7 +523,7 @@ class VideoProcessor:
                 self._sync_to_backend(seat_updates, stats, total, score)
 
     def _cloud_uploader(self):
-        """Luong day frame len Cloud lien tuc 15-20 FPS voi session keep-alive"""
+        """Luong day frame len Cloud voi toc do on dinh 6-8 FPS, khong gay nghen bang thong"""
         last_fid = -1
         while self.is_running:
             with self.lock:
@@ -531,7 +531,7 @@ class VideoProcessor:
                 fid = self.frame_id
 
             if f_bytes is None or fid == last_fid:
-                time.sleep(0.01)
+                time.sleep(0.02)
                 continue
 
             last_fid = fid
@@ -540,11 +540,11 @@ class VideoProcessor:
                     f'{BACKEND_BASE_URL}/api/device/camera-frame',
                     data=f_bytes,
                     headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'image/jpeg'},
-                    timeout=0.5
+                    timeout=0.8
                 )
             except Exception:
                 pass
-            time.sleep(0.02)
+            time.sleep(0.12)
 
     def _draw_hud(self, frame):
         h, w, _ = frame.shape
