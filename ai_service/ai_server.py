@@ -614,7 +614,21 @@ def start_webcam():
     demo_mode = data.get('demoMode', True)
     demo_seat = data.get('demoSeat', 'B1-D1L')
     ok, msg = processor.start_webcam(cam_id, room_code, demo_mode, demo_seat)
-    last_cmd_timestamp = int(time.time() * 1000)
+    now_ms = int(time.time() * 1000)
+    last_cmd_timestamp = now_ms
+
+    def _sync_cloud():
+        try:
+            requests.post(
+                f'{BACKEND_BASE_URL}/api/device/camera-command',
+                json={'active': True, 'roomCode': room_code, 'demoMode': demo_mode, 'demoSeat': demo_seat, 'timestamp': now_ms},
+                headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'application/json'},
+                timeout=2.0
+            )
+        except Exception:
+            pass
+    threading.Thread(target=_sync_cloud, daemon=True).start()
+
     return jsonify({
         'success': ok,
         'message': msg,
@@ -628,7 +642,21 @@ def start_webcam():
 def stop_feed():
     global last_cmd_timestamp
     processor.stop()
-    last_cmd_timestamp = int(time.time() * 1000)
+    now_ms = int(time.time() * 1000)
+    last_cmd_timestamp = now_ms
+
+    def _sync_cloud():
+        try:
+            requests.post(
+                f'{BACKEND_BASE_URL}/api/device/camera-command',
+                json={'active': False, 'roomCode': processor.room_code, 'timestamp': now_ms},
+                headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'application/json'},
+                timeout=2.0
+            )
+        except Exception:
+            pass
+    threading.Thread(target=_sync_cloud, daemon=True).start()
+
     return jsonify({'success': True, 'message': 'Da tat luong video'})
 
 
