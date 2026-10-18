@@ -1,22 +1,14 @@
-@echo off
-title Smart Classroom AI Server (YOLO11)
-chcp 65001 >nul
+﻿@echo off
+chcp 65001 > nul
+title SMART CLASSROOM - AI YOLO11 SERVER
+echo ============================================================
+echo   SMART CLASSROOM - HE THONG CAMERA AI (YOLO11)
+echo   * Tu dong kich hoat Webcam laptop ca nhan
+echo   * Nhan dien Hanh vi, Gio tay, Phat hien Dien thoai
+echo   * Video Stream truc tiep: http://localhost:5000/video_feed
+echo   * Ket noi Cloud Dashboard: https://smart-classroom-pyvl.onrender.com
+echo ============================================================
+echo.
 cd /d "%~dp0"
-
-echo =========================================================
-echo    SMART CLASSROOM - MÁY CHỦ AI STREAMING (YOLO11)
-echo =========================================================
-echo.
-echo [1/3] Luong Video Stream: http://localhost:5000/video_feed
-echo [2/3] API Dieu khien:     http://localhost:5000/api/status
-echo [3/3] Ket noi Spring Boot: http://localhost:8080
-echo.
-echo He thong san sang cho phep:
-echo  - Bat/Tat Webcam truc tiep tu Giao dien Web
-echo  - Tai len Video (.mp4, .avi) tu Giao dien Web
-echo =========================================================
-echo.
-
 python ai_server.py
-
 pause
