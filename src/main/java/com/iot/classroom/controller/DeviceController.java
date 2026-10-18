@@ -219,4 +219,80 @@ public class DeviceController {
                 .header("X-Accel-Buffering", "no")
                 .body(responseBody);
     }
+
+    // --- Client Camera (Web browser / Phone getUserMedia) processing ---
+    private static volatile byte[] latestClientFrame = null;
+    private static volatile long lastClientFrameTime = 0;
+    private static volatile Map<String, Object> latestClientAnalysis = new ConcurrentHashMap<>();
+
+    @PostMapping(value = "/client-frame", consumes = MediaType.IMAGE_JPEG_VALUE)
+    public ResponseEntity<?> uploadClientFrame(@RequestBody byte[] frameData) {
+        latestClientFrame = frameData;
+        lastClientFrameTime = System.currentTimeMillis();
+        Map<String, Object> res = new HashMap<>(latestClientAnalysis);
+        res.put("status", "success");
+        long ts = Long.parseLong(latestClientAnalysis.getOrDefault("timestamp", "0").toString());
+        res.put("hasAnalysis", !latestClientAnalysis.isEmpty() && (System.currentTimeMillis() - ts < 4000));
+        return ResponseEntity.ok(res);
+    }
+
+    @GetMapping(value = "/client-frame", produces = MediaType.IMAGE_JPEG_VALUE)
+    public ResponseEntity<byte[]> getClientFrame() {
+        if (latestClientFrame == null || (System.currentTimeMillis() - lastClientFrameTime) > 6000) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-cache, no-store, must-revalidate")
+                .body(latestClientFrame);
+    }
+
+    @PostMapping("/client-analysis")
+    public ResponseEntity<?> saveClientAnalysis(
+            @RequestHeader(value = "X-Device-Key", required = false) String key,
+            @RequestBody Map<String, Object> analysis) {
+        if (!deviceKey.equals(key)) return ResponseEntity.status(401).body(Map.of("message", "Sai device key"));
+        analysis.put("timestamp", System.currentTimeMillis());
+        latestClientAnalysis = new ConcurrentHashMap<>(analysis);
+
+        // Cap nhat truc tiep thong tin hoc sinh vao database
+        try {
+            String roomCode = analysis.getOrDefault("roomCode", "A101").toString();
+            Room room = rooms.findByCode(roomCode).orElse(null);
+            if (room != null) {
+                int total = Integer.parseInt(analysis.getOrDefault("totalStudents", 0).toString());
+                Object rawStats = analysis.get("stats");
+                if (rawStats instanceof Map map) {
+                    int hand = map.get("0") != null ? Integer.parseInt(map.get("0").toString()) : 0;
+                    int reading = map.get("1") != null ? Integer.parseInt(map.get("1").toString()) : 0;
+                    int writing = map.get("2") != null ? Integer.parseInt(map.get("2").toString()) : 0;
+                    int phone = map.get("3") != null ? Integer.parseInt(map.get("3").toString()) : 0;
+                    int bowing = map.get("4") != null ? Integer.parseInt(map.get("4").toString()) : 0;
+                    int leaning = map.get("5") != null ? Integer.parseInt(map.get("5").toString()) : 0;
+                    behaviorRepo.save(new BehaviorLog(room.getId(), total, hand, reading, writing, phone, bowing, leaning));
+                }
+                String seatCode = analysis.getOrDefault("seatCode", "B1-D1L").toString();
+                String status = analysis.getOrDefault("status", "studying").toString();
+                String action = analysis.getOrDefault("action", "Hoc bai").toString();
+                seatRepo.findByRoomIdAndSeatCode(room.getId(), seatCode).ifPresent(seat -> {
+                    seat.setCurrentStatus(status);
+                    seat.setCurrentAction(action);
+                    seat.setLastSeen(LocalDateTime.now());
+                    if ("using_phone".equals(status)) {
+                        seat.setViolationCount(seat.getViolationCount() + 1);
+                        logs.save(new ActionLog(room.getId(), "[CẢNH BÁO AI] " + seat.getStudentName() + " (" + seat.getSeatCode() + ") dùng điện thoại", "AI_CAMERA"));
+                    } else if ("raising_hand".equals(status)) {
+                        seat.setParticipationCount(seat.getParticipationCount() + 1);
+                    }
+                    seatRepo.save(seat);
+                });
+            }
+        } catch (Exception ignored) {}
+
+        return ResponseEntity.ok(Map.of("status", "success"));
+    }
+
+    @GetMapping("/client-analysis")
+    public ResponseEntity<?> getClientAnalysis() {
+        return ResponseEntity.ok(latestClientAnalysis);
+    }
 }

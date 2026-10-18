@@ -712,9 +712,216 @@ def get_status():
         'demoSeat': processor.demo_seat_code,
         'fps': round(processor.fps, 1),
         'totalStudents': processor.total_students,
-        'attentionScore': round(processor.attention_score, 1),
-        'behaviors': processor.stats
-    })
+def process_single_frame(frame, room_code='A101', demo_mode=True, demo_seat='B1-D1L'):
+    """Ham phan tich frame doc lap phuc vu Camera tren thiet bi (Dien thoai / Web client - Huong 1)"""
+    h, w, _ = frame.shape
+    stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+    total = 0
+    detected_phones = []
+    has_phone = False
+    boxes_data = []
+
+    # 1. Phat hien dien thoai
+    if obj_model is not None:
+        obj_res = obj_model.predict(frame, classes=[67], conf=0.35, imgsz=416, verbose=False)
+        if len(obj_res) > 0 and obj_res[0].boxes is not None:
+            for b in obj_res[0].boxes:
+                box = b.xyxy[0].cpu().numpy().astype(int)
+                conf = float(b.conf[0].item())
+                bw = box[2] - box[0]
+                bh = box[3] - box[1]
+                if bw >= 24 and bh >= 24:
+                    detected_phones.append({'box': [int(box[0]), int(box[1]), int(box[2]), int(box[3])], 'conf': round(conf, 2)})
+                    has_phone = True
+
+    # 2. Phat hien hanh vi
+    behav_boxes = []
+    if behavior_model is not None:
+        b_res = behavior_model.predict(frame, conf=0.25, imgsz=416, verbose=False)
+        if len(b_res) > 0 and b_res[0].boxes is not None:
+            for b in b_res[0].boxes:
+                cid = int(b.cls[0].item())
+                box = b.xyxy[0].cpu().numpy().astype(int)
+                conf = float(b.conf[0].item())
+                behav_boxes.append((cid, box, conf))
+
+    # 3. Xu ly hanh vi
+    for (cid, box, conf) in behav_boxes:
+        if cid in BEHAVIOR_CLASSES:
+            total += 1
+            px1, py1, px2, py2 = box
+            cx = (px1 + px2) / 2.0
+            cy = (py1 + py2) / 2.0
+            norm_x = cx / max(1, w)
+            norm_y = cy / max(1, h)
+
+            student_has_phone = False
+            for ph in detected_phones:
+                ph_box = ph['box']
+                ph_cx = (ph_box[0] + ph_box[2]) / 2.0
+                ph_cy = (ph_box[1] + ph_box[3]) / 2.0
+                if (px1 - 60 <= ph_cx <= px2 + 60) and (py1 - 40 <= ph_cy <= py2 + 80):
+                    student_has_phone = True
+                    break
+
+            if cid == 3:
+                act_id = 3 if (student_has_phone or conf >= 0.50) else 2
+            else:
+                act_id = 3 if student_has_phone else cid
+
+            meta = BEHAVIOR_CLASSES[act_id]
+            action_name = meta['name_vi']
+            status_key = meta['status']
+            col = meta['color']
+
+            stats[act_id] = stats.get(act_id, 0) + 1
+            target_seat = demo_seat if (demo_mode and total == 1) else map_coord_to_seat(norm_x, norm_y)
+            label = f'[DEMO] {target_seat}: {action_name}' if (demo_mode and total == 1) else f'{target_seat}: {action_name}'
+
+            boxes_data.append({
+                'box': [int(px1), int(py1), int(px2), int(py2)],
+                'label': label,
+                'color': [int(col[2]), int(col[1]), int(col[0])],
+                'status': status_key,
+                'action': action_name,
+                'seatCode': target_seat
+            })
+
+    # 4. Pose model
+    if total == 0 and pose_model is not None:
+        p_res = pose_model.predict(frame, conf=0.28, imgsz=416, verbose=False)
+        if len(p_res) > 0 and p_res[0].boxes is not None and p_res[0].keypoints is not None:
+            p_boxes = p_res[0].boxes.xyxy.cpu().numpy().astype(int)
+            kpts_data = p_res[0].keypoints.data.cpu().numpy()
+
+            for i, p_box in enumerate(p_boxes):
+                total += 1
+                kpts = kpts_data[i]
+                px1, py1, px2, py2 = p_box
+                cx = (px1 + px2) / 2.0
+                cy = (py1 + py2) / 2.0
+                norm_x = cx / max(1, w)
+                norm_y = cy / max(1, h)
+
+                student_has_phone = False
+                for ph in detected_phones:
+                    ph_box = ph['box']
+                    ph_cx = (ph_box[0] + ph_box[2]) / 2.0
+                    ph_cy = (ph_box[1] + ph_box[3]) / 2.0
+                    if (px1 - 60 <= ph_cx <= px2 + 60) and (py1 - 40 <= ph_cy <= py2 + 80):
+                        student_has_phone = True
+                        break
+
+                if student_has_phone:
+                    action_id = 3
+                    action_name = 'Dung dien thoai'
+                    status_key = 'using_phone'
+                    col = (40, 40, 235)
+                else:
+                    l_shoulder, r_shoulder = kpts[5], kpts[6]
+                    l_wrist, r_wrist = kpts[9], kpts[10]
+                    is_raising = False
+                    if l_wrist[2] > 0.20 and l_shoulder[2] > 0.20 and l_wrist[1] < l_shoulder[1]:
+                        is_raising = True
+                    if r_wrist[2] > 0.20 and r_shoulder[2] > 0.20 and r_wrist[1] < r_shoulder[1]:
+                        is_raising = True
+
+                    if is_raising:
+                        action_id = 0
+                        action_name = 'Gio tay'
+                        status_key = 'raising_hand'
+                        col = (46, 204, 113)
+                    else:
+                        action_id = 2
+                        action_name = 'Hoc bai'
+                        status_key = 'studying'
+                        col = (155, 89, 182)
+
+                stats[action_id] = stats.get(action_id, 0) + 1
+                target_seat = demo_seat if (demo_mode and total == 1) else map_coord_to_seat(norm_x, norm_y)
+                label = f'[DEMO] {target_seat}: {action_name}' if (demo_mode and total == 1) else f'{target_seat}: {action_name}'
+
+                boxes_data.append({
+                    'box': [int(px1), int(py1), int(px2), int(py2)],
+                    'label': label,
+                    'color': [int(col[2]), int(col[1]), int(col[0])],
+                    'status': status_key,
+                    'action': action_name,
+                    'seatCode': target_seat
+                })
+
+    # 5. Chi gio dien thoai truoc camera
+    if total == 0 and has_phone and demo_mode:
+        total = 1
+        stats[3] = 1
+        boxes_data.append({
+            'box': detected_phones[0]['box'],
+            'label': f'[DEMO] {demo_seat}: Dung dien thoai',
+            'color': [235, 40, 40],
+            'status': 'using_phone',
+            'action': 'Dung dien thoai',
+            'seatCode': demo_seat
+        })
+
+    pos = stats.get(0, 0) + stats.get(1, 0) + stats.get(2, 0)
+    score = round((pos / max(1, total)) * 100, 1) if total > 0 else 100.0
+
+    primary_action = boxes_data[0]['action'] if boxes_data else 'Trong'
+    primary_status = boxes_data[0]['status'] if boxes_data else 'empty'
+    primary_seat = boxes_data[0]['seatCode'] if boxes_data else demo_seat
+
+    return {
+        'success': True,
+        'totalStudents': total,
+        'attentionScore': score,
+        'stats': {str(k): v for k, v in stats.items()},
+        'boxes': boxes_data,
+        'phones': detected_phones,
+        'phoneAlert': (stats.get(3, 0) > 0 or has_phone),
+        'action': primary_action,
+        'status': primary_status,
+        'seatCode': primary_seat,
+        'roomCode': room_code
+    }
+
+
+@app.route('/api/analyze_frame', methods=['POST'])
+def analyze_frame_route():
+    file = request.files.get('frame')
+    if not file:
+        return jsonify({'success': False, 'message': 'Chua co frame'}), 400
+    nparr = np.frombuffer(file.read(), np.uint8)
+    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    if frame is None:
+        return jsonify({'success': False, 'message': 'Loi doc frame'}), 400
+    room = request.form.get('room', 'A101')
+    seat = request.form.get('seat', 'B1-D1L')
+    demo = request.form.get('demoMode', 'true').lower() == 'true'
+    res = process_single_frame(frame, room, demo, seat)
+    return jsonify(res)
+
+
+def _client_frame_worker():
+    """Luong AI doc frame truc tiep tu Cloud duoc gui tu Camera Dien thoai / Web client"""
+    client_session = requests.Session()
+    print('[INFO] Da kich hoat Luong AI ho tro Camera Dien thoai (Huong 1)!')
+    while True:
+        try:
+            time.sleep(0.20)
+            res = client_session.get(f'{BACKEND_BASE_URL}/api/device/client-frame', timeout=1.8)
+            if res.status_code == 200 and len(res.content) > 1000:
+                nparr = np.frombuffer(res.content, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                if frame is not None:
+                    analysis = process_single_frame(frame, 'A101', True, 'B1-D1L')
+                    client_session.post(
+                        f'{BACKEND_BASE_URL}/api/device/client-analysis',
+                        json=analysis,
+                        headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'application/json'},
+                        timeout=1.8
+                    )
+        except Exception:
+            pass
 
 
 last_cmd_timestamp = 0
@@ -789,5 +996,8 @@ if __name__ == '__main__':
     # 1. Khoi dong thread lang nghe Cloud
     threading.Thread(target=_cloud_listener, daemon=True).start()
 
-    # 2. Chay Flask Server
+    # 2. Khoi dong thread ho tro Camera Dien thoai / Web Client
+    threading.Thread(target=_client_frame_worker, daemon=True).start()
+
+    # 3. Chay Flask Server
     app.run(host='0.0.0.0', port=5000, debug=False, threaded=True)
