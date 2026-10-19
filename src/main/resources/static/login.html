@@ -14,10 +14,10 @@
     :root {
       --navy: #172036;
       --navy-dark: #0f1624;
-      --accent: #c9531b;
-      --accent-hover: #ad4514;
-      --accent-soft: #fcefe8;
-      --accent-ring: rgb(201 83 27 / 0.18);
+      --accent: #0284c7;
+      --accent-hover: #0369a1;
+      --accent-soft: #e0f2fe;
+      --accent-ring: rgb(2 132 199 / 0.20);
       --text: #1f2430;
       --text-muted: #5c6370;
       --text-subtle: #8a909b;
@@ -184,60 +184,15 @@
       margin-top: 6px;
     }
 
-    .role-helper {
-      margin-top: 24px;
-      padding-top: 20px;
-      border-top: 1px solid var(--border);
-    }
-
-    .role-helper-title {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text-muted);
-      margin-bottom: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .role-chips {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-
-    .chip {
-      background: var(--surface-muted);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-sm);
-      padding: 9px 12px;
-      cursor: pointer;
-      text-align: left;
-      transition: background 0.15s, border-color 0.15s;
-    }
-
-    .chip:hover {
-      border-color: var(--accent);
-      background: var(--accent-soft);
-    }
-
-    .chip-role {
-      font-size: 12.5px;
-      font-weight: 700;
-      color: var(--navy);
-    }
-
-    .chip-acc {
-      font-size: 11.5px;
-      color: var(--text-muted);
-      margin-top: 2px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
-
     .footer-copy {
       margin-top: 24px;
       text-align: center;
       font-size: 12.5px;
       color: var(--text-subtle);
+    }
+
+    .footer-copy b {
+      color: var(--text-muted);
     }
   </style>
 </head>
@@ -289,33 +244,15 @@
         Đăng nhập
       </button>
     </form>
-
-    <div class="role-helper">
-      <div class="role-helper-title">Đăng nhập nhanh theo vai trò:</div>
-      <div class="role-chips">
-        <div class="chip" onclick="fillCreds('admin', 'admin123')">
-          <div class="chip-role">Quản trị viên</div>
-          <div class="chip-acc">admin / admin123</div>
-        </div>
-        <div class="chip" onclick="fillCreds('gv', 'gv123')">
-          <div class="chip-role">Giáo viên</div>
-          <div class="chip-acc">gv / gv123</div>
-        </div>
-      </div>
-    </div>
   </main>
 
   <footer class="footer-copy">
-    Hệ thống Quản lý Phòng học Thông minh SmartClass 4.0 © 2026.
+    Hệ thống Quản lý Phòng học Thông minh SmartClass 4.0 © 2026. Đơn vị thi công & phát triển: <b>NTP Tech</b>
   </footer>
 
   <script>
     if (window.location.search.includes('error')) {
       document.getElementById('errBox').style.display = 'block';
-    }
-    function fillCreds(u, p) {
-      document.getElementById('username').value = u;
-      document.getElementById('password').value = p;
     }
   </script>
 </body>
