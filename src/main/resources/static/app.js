@@ -385,6 +385,26 @@
       }
     };
 
+    const btnFullscreenCam = $('btnFullscreenCam');
+    if (btnFullscreenCam) {
+      btnFullscreenCam.onclick = () => {
+        const sc = $('streamContainer');
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+          if (sc.requestFullscreen) {
+            sc.requestFullscreen().catch(() => {});
+          } else if (sc.webkitRequestFullscreen) {
+            sc.webkitRequestFullscreen();
+          }
+        } else {
+          if (document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+          } else if (document.webkitExitFullscreen) {
+            document.webkitExitFullscreen();
+          }
+        }
+      };
+    }
+
     async function loadBehaviorData() {
       if (!currentRoomId) return;
       try {
