@@ -9,11 +9,19 @@ import sys
 import time
 import threading
 import argparse
+import json
 import requests
 import cv2
 import numpy as np
 import torch
 from flask import Flask, Response, request, jsonify
+
+try:
+    import serial
+    import serial.tools.list_ports
+    HAS_SERIAL = True
+except ImportError:
+    HAS_SERIAL = False
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from ultralytics import YOLO
@@ -21,9 +29,13 @@ from ultralytics import YOLO
 parser = argparse.ArgumentParser(description="Smart Classroom AI Camera Node")
 parser.add_argument('--room', default=os.environ.get('ROOM_CODE', 'A101'), help="Ma phong hoc AI phu trach")
 parser.add_argument('--cam', default=0, type=int, help="Chi so camera")
+parser.add_argument('--serial-port', default=None, help="Cong COM ket noi ESP32 (vi du COM3). Mac dinh: tu dong tim cong")
+parser.add_argument('--baud', default=115200, type=int, help="Baud rate Serial (mac dinh 115200)")
 args, _ = parser.parse_known_args()
 ASSIGNED_ROOM = (args.room or 'A101').strip().upper()
 DEFAULT_CAM_ID = args.cam
+SERIAL_PORT_ARG = args.serial_port
+BAUD_RATE_ARG = args.baud
 
 # Toi uu luong CPU cho PyTorch
 torch.set_num_threads(min(6, os.cpu_count() or 6))
@@ -721,8 +733,13 @@ def get_status():
         'demoSeat': processor.demo_seat_code,
         'fps': round(processor.fps, 1),
         'totalStudents': processor.total_students,
-        'attentionScore': round(processor.attention_score, 1)
+        'attentionScore': round(processor.attention_score, 1),
+        'coordinator': COORDINATOR_STATE
     })
+
+@app.route('/api/coordinator/status', methods=['GET'])
+def get_coordinator_status():
+    return jsonify(COORDINATOR_STATE)
 
 
 def process_single_frame(frame, room_code='A101', demo_mode=True, demo_seat='B1-D1L'):
@@ -940,6 +957,118 @@ def _client_frame_worker():
 last_cmd_timestamp = 0
 
 
+
+# ==============================================================================
+# IOT CAP DO 5 (IOT LEVEL 5): CLASSROOM COORDINATOR NODE
+# - Ket noi truc tiep ESP32 (End Node) qua cap USB Serial (115200 baud).
+# - Thu thap du lieu cam bien moi truong, gom chung voi AI Camera thanh 1 goi.
+# - Lam dai dien duy nhat cua phong hoc gui du lieu len Cloud Render.
+# - Nhan lenh dieu khien tu Cloud va truyen xuong ESP32.
+# - Co co che Offline Fallback: tu dong bat quat neu phong nong khi mat mang.
+# ==============================================================================
+COORDINATOR_STATE = {
+    'level': 'IoT Level 5',
+    'enabled': True,
+    'serial_connected': False,
+    'serial_port': None,
+    'baud_rate': BAUD_RATE_ARG,
+    'last_telemetry': {},
+    'last_commands': {'light': False, 'fan': False, 'ac': False},
+    'last_update_ts': 0,
+    'offline_fallback': False
+}
+
+def _serial_coordinator_worker(room_code, preferred_port=None, baud=115200):
+    if not HAS_SERIAL:
+        print('[COORDINATOR - IOT LEVEL 5] Luu y: Chua cai pyserial. Chay: pip install pyserial')
+        return
+    print(f'[COORDINATOR - IOT LEVEL 5] Da khoi dong Node Dieu Phoi Serial cho phong [{room_code}] (Baud: {baud})')
+    
+    while True:
+        try:
+            ports = [p.device for p in serial.tools.list_ports.comports()]
+            target_port = None
+            if preferred_port and preferred_port in ports:
+                target_port = preferred_port
+            elif ports:
+                target_port = ports[0]
+
+            if not target_port:
+                COORDINATOR_STATE['serial_connected'] = False
+                COORDINATOR_STATE['serial_port'] = None
+                time.sleep(2.5)
+                continue
+
+            print(f'[COORDINATOR] Tim thay cong [{target_port}]. Dang ket noi ESP32...')
+            ser = serial.Serial(target_port, baud, timeout=1.5)
+            time.sleep(1.0)
+            ser.reset_input_buffer()
+
+            COORDINATOR_STATE['serial_connected'] = True
+            COORDINATOR_STATE['serial_port'] = target_port
+            print(f'>>> [COORDINATOR - IOT LEVEL 5] KET NOI THANH CONG ESP32 TAI CONG [{target_port}]! <<<')
+
+            while True:
+                line = ser.readline().decode('utf-8', errors='ignore').strip()
+                if not line:
+                    continue
+                if not (line.startswith('{') and line.endswith('}')):
+                    continue
+                try:
+                    data = json.loads(line)
+                    if 'temperature' in data or 'roomCode' in data:
+                        COORDINATOR_STATE['last_telemetry'] = data
+                        COORDINATOR_STATE['last_update_ts'] = int(time.time() * 1000)
+
+                        payload = {
+                            'roomCode': room_code,
+                            'temperature': float(data.get('temperature', 26.0)),
+                            'humidity': float(data.get('humidity', 60.0)),
+                            'lux': float(data.get('lux', 400.0)),
+                            'motion': bool(data.get('motion', False))
+                        }
+
+                        # 1. Gui telemetry phong hoc len Cloud Render
+                        try:
+                            r = requests.post(
+                                f'{BACKEND_BASE_URL}/api/device/telemetry',
+                                json=payload,
+                                headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'application/json'},
+                                timeout=2.0
+                            )
+                            if r.status_code == 200:
+                                cmd = r.json()
+                                COORDINATOR_STATE['last_commands'] = cmd
+                                COORDINATOR_STATE['offline_fallback'] = False
+
+                                # Gui lenh dieu khien nguoc lai xuong ESP32 qua Serial
+                                cmd_line = json.dumps({
+                                    'light': bool(cmd.get('light', False)),
+                                    'fan': bool(cmd.get('fan', False)),
+                                    'ac': bool(cmd.get('ac', False))
+                                }) + '\n'
+                                ser.write(cmd_line.encode('utf-8'))
+                        except Exception:
+                            # 2. Local Fallback: Tu dong dieu khien cuc bo neu mat mang Internet
+                            COORDINATOR_STATE['offline_fallback'] = True
+                            temp = payload['temperature']
+                            motion = payload['motion']
+                            local_cmd = {
+                                'light': motion,
+                                'fan': (temp >= 28.0 and motion),
+                                'ac': (temp >= 30.0 and motion)
+                            }
+                            COORDINATOR_STATE['last_commands'] = local_cmd
+                            cmd_line = json.dumps(local_cmd) + '\n'
+                            ser.write(cmd_line.encode('utf-8'))
+                except Exception:
+                    pass
+
+        except Exception as e:
+            COORDINATOR_STATE['serial_connected'] = False
+            COORDINATOR_STATE['serial_port'] = None
+            time.sleep(2.0)
+
 def _cloud_listener():
     """Lang nghe lenh Bat/Tat Webcam truc tiep tu Web Dashboard va gui Heartbeat theo phong"""
     global last_cmd_timestamp
@@ -1007,7 +1136,14 @@ if __name__ == '__main__':
     print('       may nay se tu dong bat webcam de truyen hinh anh len he thong.')
     print('=================================================================')
 
-    # 1. Khoi dong thread lang nghe Cloud
+    # 1. Khoi dong Nút Dieu Phoi Serial (IoT Cap do 5)
+    threading.Thread(
+        target=_serial_coordinator_worker,
+        args=(processor.room_code, SERIAL_PORT_ARG, BAUD_RATE_ARG),
+        daemon=True
+    ).start()
+
+    # 2. Khoi dong thread lang nghe Cloud
     threading.Thread(target=_cloud_listener, daemon=True).start()
 
     # 2. Chay Flask Server

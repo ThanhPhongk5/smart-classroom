@@ -340,6 +340,21 @@
       if (info.fps != null) $('camFpsText').textContent = typeof info.fps === 'number' ? info.fps.toFixed(1) : info.fps;
       if (info.totalStudents != null) $('camPersonCount').textContent = info.totalStudents;
       if (info.attentionScore != null) $('aiScoreNumber').textContent = (typeof info.attentionScore === 'number' ? info.attentionScore.toFixed(0) : info.attentionScore) + '%';
+
+      const chipCoordinator = $('chipCoordinator');
+      if (chipCoordinator && info.coordinator) {
+        if (info.coordinator.serial_connected) {
+          chipCoordinator.textContent = `Node Điều phối: Kết nối USB (${info.coordinator.serial_port || 'COM'})`;
+          chipCoordinator.style.background = '#e6f4ea';
+          chipCoordinator.style.color = 'var(--success)';
+          chipCoordinator.style.borderColor = '#b7e1cd';
+        } else {
+          chipCoordinator.textContent = 'Node Điều phối: Cấp độ 5 (Chờ USB)';
+          chipCoordinator.style.background = 'var(--accent-soft)';
+          chipCoordinator.style.color = 'var(--accent)';
+          chipCoordinator.style.borderColor = '#bae6fd';
+        }
+      }
     }
 
     $('btnStartCam').onclick = async () => {

@@ -1,9 +1,9 @@
 @echo off
 chcp 65001 > nul
-title SMART CLASSROOM - MAY TRAM AI CAMERA
-echo ============================================================
-echo       SMART CLASSROOM - MAY TRAM CAMERA AI THEO PHONG
-echo ============================================================
+title SMART CLASSROOM - NODE DIEU PHOI PHONG HOC (COORDINATOR - IOT LEVEL 5)
+echo ====================================================================
+echo       SMART CLASSROOM - NODE DIEU PHOI PHONG HOC (IOT CAP DO 5)
+echo ====================================================================
 echo.
 set ROOM_INPUT=%1
 if "%ROOM_INPUT%"=="" (
@@ -11,8 +11,9 @@ if "%ROOM_INPUT%"=="" (
 )
 if "%ROOM_INPUT%"=="" set ROOM_INPUT=A101
 echo.
-echo [XAC NHAN] May nay se phu trach Camera AI cho phong: %ROOM_INPUT%
-echo [INFO] Chi khi tren Web bat camera phong %ROOM_INPUT% thi webcam may nay moi mo.
+echo [XAC NHAN] May nay la Node Dieu Phoi (Coordinator) cho phong: %ROOM_INPUT%
+echo [INFO] Ket noi Serial ESP32 (qua cap USB) + Camera AI YOLO
+echo [INFO] Dong goi Telemetry phong %ROOM_INPUT% gui len Cloud Render
 echo.
 cd /d "%~dp0"
 if exist "ai_service\ai_server.py" (

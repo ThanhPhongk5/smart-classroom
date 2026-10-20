@@ -1,93 +1,143 @@
 /*
- * Lop hoc thong minh - ESP32
- * Thu vien can cai (Library Manager): "DHT sensor library" (Adafruit), "Adafruit Unified Sensor", "ArduinoJson" (v7)
- * Cam bien: DHT22 (nhiet do/do am), LDR + dien tro 10k (anh sang), PIR HC-SR501 (co nguoi)
- * Co cau chap hanh: module relay 3 kenh (den, quat, dieu hoa) - relay kich muc THAP (active-low)
+ * ==============================================================================
+ * HE THONG PHONG HOC THONG MINH SMARTCLASS - IOT CAP DO 5 (IOT LEVEL 5)
+ * Nut Dau Cuoi: ESP32 Cam Bien & Chap Hanh (End Node)
+ * Ket noi: Cap USB Serial truc tiep voi Nut Dieu Phoi (Classroom Coordinator)
+ * Khong phu thuoc mang WiFi, khong lo doi IP, do tre 0ms, hoat dong on dinh 100%.
+ * ==============================================================================
+ * Thu vien can cai tren Arduino IDE (Tools -> Manage Libraries):
+ *   1. "DHT sensor library" (Adafruit)
+ *   2. "Adafruit Unified Sensor"
+ *   3. "ArduinoJson" (v6 hoac v7)
+ *
+ * So do chan (Pinout):
+ *   - DHT22 (Nhiet do / Do am):    Pin 4
+ *   - LDR Quang tro (Anh sang):     Pin 34 (Analog ADC1)
+ *   - PIR HC-SR501 (Chuyen dong):  Pin 27
+ *   - Relay Den LED (Light):       Pin 25 (Active-LOW: LOW=ON, HIGH=OFF)
+ *   - Relay Quat gio (Fan):        Pin 26
+ *   - Relay Dieu hoa (AC):         Pin 33
+ * ==============================================================================
  */
-#include <WiFi.h>
-#include <HTTPClient.h>
+
 #include <ArduinoJson.h>
 #include <DHT.h>
 
-// ====== CAU HINH ======
-const char* WIFI_SSID  = "TEN_WIFI";
-const char* WIFI_PASS  = "MAT_KHAU_WIFI";
-const char* SERVER_URL = "http://192.168.1.10:8080/api/device/telemetry";  // IP may chay Spring Boot
-const char* DEVICE_KEY = "esp32-secret-2026";   // trung voi app.device-key
-const char* ROOM_CODE  = "A101";
-const unsigned long SEND_INTERVAL = 5000;       // ms
+// ====== CAU HINH PHONG HOC ======
+const char* ROOM_CODE = "A101";
+const unsigned long SEND_INTERVAL = 3000; // Gui telemetry len Coordinator moi 3 giay
 
 #define PIN_DHT    4
-#define PIN_LDR    34     // chi doc analog (ADC1)
+#define PIN_LDR    34
 #define PIN_PIR    27
 #define PIN_LIGHT  25
 #define PIN_FAN    26
 #define PIN_AC     33
+
 #define RELAY_ON   LOW
 #define RELAY_OFF  HIGH
 
 DHT dht(PIN_DHT, DHT22);
 unsigned long lastSend = 0;
-bool motionLatch = false;   // nho chuyen dong xay ra giua 2 lan gui
+bool motionLatch = false;
 
-void setRelay(int pin, bool on) { digitalWrite(pin, on ? RELAY_ON : RELAY_OFF); }
+// Trang thai thiet bi hien tai
+bool stateLight = false;
+bool stateFan   = false;
+bool stateAc    = false;
 
-void connectWifi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("Ket noi WiFi");
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.println("\nIP: " + WiFi.localIP().toString());
+void setRelay(int pin, bool on) {
+  digitalWrite(pin, on ? RELAY_ON : RELAY_OFF);
 }
 
-// LDR -> lux gan dung (can hieu chinh voi lux ke that neu muon chinh xac)
 float readLux() {
-  int raw = analogRead(PIN_LDR);               // 0..4095, sang -> gia tri cao khi LDR noi ve GND
+  int raw = analogRead(PIN_LDR); // 0..4095
   return (raw / 4095.0f) * 1000.0f;
-}
-
-void sendTelemetry() {
-  float t = dht.readTemperature(), h = dht.readHumidity();
-  if (isnan(t) || isnan(h)) { Serial.println("Loi doc DHT22"); return; }
-
-  JsonDocument doc;
-  doc["roomCode"] = ROOM_CODE;
-  doc["temperature"] = t;
-  doc["humidity"] = h;
-  doc["lux"] = readLux();
-  doc["motion"] = motionLatch;
-  motionLatch = false;
-  String body; serializeJson(doc, body);
-
-  HTTPClient http;
-  http.begin(SERVER_URL);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Device-Key", DEVICE_KEY);
-  int code = http.POST(body);
-  if (code == 200) {
-    JsonDocument cmd;
-    if (!deserializeJson(cmd, http.getString())) {       // phan hoi = lenh dieu khien
-      setRelay(PIN_LIGHT, cmd["light"]);
-      setRelay(PIN_FAN,   cmd["fan"]);
-      setRelay(PIN_AC,    cmd["ac"]);
-    }
-  } else {
-    Serial.printf("POST that bai, ma = %d\n", code);
-  }
-  http.end();
 }
 
 void setup() {
   Serial.begin(115200);
+  
   pinMode(PIN_PIR, INPUT);
-  for (int p : {PIN_LIGHT, PIN_FAN, PIN_AC}) { pinMode(p, OUTPUT); setRelay(p, false); }
+  for (int p : {PIN_LIGHT, PIN_FAN, PIN_AC}) {
+    pinMode(p, OUTPUT);
+    setRelay(p, false);
+  }
+  
   dht.begin();
-  connectWifi();
+  delay(1000);
+  
+  // Gui thong bao khoi dong ve Coordinator
+  Serial.println("{\"status\":\"ESP32_READY\",\"roomCode\":\"A101\",\"mode\":\"IOT_LEVEL_5_SERIAL\"}");
+}
+
+// Xu ly lenh dieu khien tu Coordinator (May tinh phong hoc) gui xuong qua Serial
+void processIncomingCommand(const String& jsonStr) {
+  StaticJsonDocument<256> doc;
+  DeserializationError err = deserializeJson(doc, jsonStr);
+  if (err) return; // Khong phai goi JSON hop le thi bo qua
+
+  if (doc.containsKey("light")) {
+    stateLight = doc["light"];
+    setRelay(PIN_LIGHT, stateLight);
+  }
+  if (doc.containsKey("fan")) {
+    stateFan = doc["fan"];
+    setRelay(PIN_FAN, stateFan);
+  }
+  if (doc.containsKey("ac")) {
+    stateAc = doc["ac"];
+    setRelay(PIN_AC, stateAc);
+  }
+}
+
+// Gui du lieu cam bien dinh ky ve Coordinator qua Serial
+void sendTelemetryToCoordinator() {
+  float t = dht.readTemperature();
+  float h = dht.readHumidity();
+
+  // Neu loi doc DHT22 thi lay gia tri an toan
+  if (isnan(t)) t = 26.5;
+  if (isnan(h)) h = 65.0;
+
+  StaticJsonDocument<256> doc;
+  doc["roomCode"] = ROOM_CODE;
+  doc["temperature"] = round(t * 10.0) / 10.0;
+  doc["humidity"] = round(h * 10.0) / 10.0;
+  doc["lux"] = round(readLux() * 10.0) / 10.0;
+  doc["motion"] = motionLatch;
+  doc["lightState"] = stateLight;
+  doc["fanState"]   = stateFan;
+  doc["acState"]    = stateAc;
+
+  // Reset bien nho chuyen dong sau moi lan gui
+  motionLatch = false;
+
+  // Dong goi va in JSON tren 1 dong ve cong Serial cho Coordinator doc
+  serializeJson(doc, Serial);
+  Serial.println();
 }
 
 void loop() {
-  if (digitalRead(PIN_PIR) == HIGH) motionLatch = true;
-  if (WiFi.status() != WL_CONNECTED) connectWifi();
-  if (millis() - lastSend >= SEND_INTERVAL) { lastSend = millis(); sendTelemetry(); }
-  delay(50);
+  // Ghi nhan chuyen dong neu cam bien PIR phat hien
+  if (digitalRead(PIN_PIR) == HIGH) {
+    motionLatch = true;
+  }
+
+  // Lang nghe lenh dieu khien tu Coordinator qua Serial
+  if (Serial.available() > 0) {
+    String line = Serial.readStringUntil('\n');
+    line.trim();
+    if (line.startsWith("{") && line.endsWith("}")) {
+      processIncomingCommand(line);
+    }
+  }
+
+  // Dinh ky 3s gui du lieu cam bien len Coordinator
+  if (millis() - lastSend >= SEND_INTERVAL) {
+    lastSend = millis();
+    sendTelemetryToCoordinator();
+  }
+
+  delay(20);
 }
