@@ -193,6 +193,7 @@ class VideoProcessor:
         # Che do Demo 1 nguoi / phong hoc that
         self.demo_mode = True
         self.demo_seat_code = 'B1-D1L'
+        self.seat_violation_latch = {} # seat_code -> timestamp cua lan vi pham gan nhat (giu canh bao tren so do)
 
     def fetch_room_layout(self):
         try:
@@ -276,21 +277,26 @@ class VideoProcessor:
             'leaningTable': overall_stats.get(5, 0)
         }
 
+        target_urls = [BACKEND_BASE_URL]
+        if 'localhost:8080' not in BACKEND_BASE_URL and '127.0.0.1:8080' not in BACKEND_BASE_URL:
+            target_urls.append('http://localhost:8080')
+
         def _post():
-            try:
-                self.session.post(SPRING_BOOT_URL, json=payload_behavior,
-                                  headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'application/json'},
-                                  timeout=1.0)
-                if seat_updates:
-                    payload_seats = {
-                        'roomCode': self.room_code,
-                        'updates': seat_updates
-                    }
-                    self.session.post(SPRING_BOOT_SEATS_URL, json=payload_seats,
+            for base_url in target_urls:
+                try:
+                    self.session.post(f'{base_url}/api/device/behavior', json=payload_behavior,
                                       headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'application/json'},
-                                      timeout=1.0)
-            except Exception:
-                pass
+                                      timeout=0.8)
+                    if seat_updates:
+                        payload_seats = {
+                            'roomCode': self.room_code,
+                            'updates': seat_updates
+                        }
+                        self.session.post(f'{base_url}/api/device/seats', json=payload_seats,
+                                          headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'application/json'},
+                                          timeout=0.8)
+                except Exception:
+                    pass
 
         threading.Thread(target=_post, daemon=True).start()
 
@@ -427,11 +433,14 @@ class VideoProcessor:
                                 student_has_phone = True
                                 break
 
+                        cur_seat = self.demo_seat_code if self.demo_mode else map_coord_to_seat(norm_x, norm_y, self.total_rows, self.total_cols, self.seats_per_desk)
+
                         if student_has_phone:
                             action_id = 3
                             action_name = 'Dung dien thoai'
                             status_key = 'using_phone'
                             box_color = (40, 40, 235)
+                            self.seat_violation_latch[cur_seat] = time.time()
                         else:
                             l_shoulder, r_shoulder = kpts[5], kpts[6]
                             l_wrist, r_wrist = kpts[9], kpts[10]
@@ -441,7 +450,13 @@ class VideoProcessor:
                             if r_wrist[2] > 0.20 and r_shoulder[2] > 0.20 and r_wrist[1] < r_shoulder[1]:
                                 is_raising = True
 
-                            if is_raising:
+                            # Giu trang thai vi pham tren ghe it nhat 5 giay de so do lop kip doi mau
+                            if time.time() - self.seat_violation_latch.get(cur_seat, 0) < 5.0:
+                                action_id = 3
+                                action_name = 'Dung dien thoai'
+                                status_key = 'using_phone'
+                                box_color = (40, 40, 235)
+                            elif is_raising:
                                 action_id = 0
                                 action_name = 'Gio tay'
                                 status_key = 'raising_hand'
@@ -454,11 +469,11 @@ class VideoProcessor:
 
                         stats[action_id] = stats.get(action_id, 0) + 1
 
-                        if self.demo_mode and total == 1:
+                        if self.demo_mode:
                             target_seat = self.demo_seat_code
                             seat_label = f'[DEMO] {target_seat}: {action_name}'
                         else:
-                            target_seat = map_coord_to_seat(norm_x, norm_y, self.total_rows, self.total_cols, self.seats_per_desk)
+                            target_seat = cur_seat
                             seat_label = f'{target_seat}: {action_name}'
 
                         seat_updates.append({
@@ -468,10 +483,11 @@ class VideoProcessor:
                         })
                         boxes_to_draw.append((px1, py1, px2, py2, box_color, seat_label))
 
-            # 5. Neu chi gio dien thoai truoc camera (Solo Demo) va chua co box nguoi
-            if total == 0 and has_phone and self.demo_mode:
-                total = 1
+            # 5. Neu chi gio dien thoai truoc camera (Solo Demo) hoac phat hien phone
+            if (total == 0 and has_phone and self.demo_mode) or (has_phone and self.demo_mode and stats.get(3, 0) == 0):
+                total = max(1, total)
                 stats[3] = 1
+                self.seat_violation_latch[self.demo_seat_code] = time.time()
                 seat_updates.append({
                     'seatCode': self.demo_seat_code,
                     'status': 'using_phone',
@@ -805,8 +821,8 @@ def process_single_frame(frame, room_code='A101', demo_mode=True, demo_seat='B1-
             col = meta['color']
 
             stats[act_id] = stats.get(act_id, 0) + 1
-            target_seat = demo_seat if (demo_mode and total == 1) else map_coord_to_seat(norm_x, norm_y)
-            label = f'[DEMO] {target_seat}: {action_name}' if (demo_mode and total == 1) else f'{target_seat}: {action_name}'
+            target_seat = demo_seat if demo_mode else map_coord_to_seat(norm_x, norm_y)
+            label = f'[DEMO] {target_seat}: {action_name}' if demo_mode else f'{target_seat}: {action_name}'
 
             boxes_data.append({
                 'box': [int(px1), int(py1), int(px2), int(py2)],
@@ -868,8 +884,8 @@ def process_single_frame(frame, room_code='A101', demo_mode=True, demo_seat='B1-
                         col = (155, 89, 182)
 
                 stats[action_id] = stats.get(action_id, 0) + 1
-                target_seat = demo_seat if (demo_mode and total == 1) else map_coord_to_seat(norm_x, norm_y)
-                label = f'[DEMO] {target_seat}: {action_name}' if (demo_mode and total == 1) else f'{target_seat}: {action_name}'
+                target_seat = demo_seat if demo_mode else map_coord_to_seat(norm_x, norm_y)
+                label = f'[DEMO] {target_seat}: {action_name}' if demo_mode else f'{target_seat}: {action_name}'
 
                 boxes_data.append({
                     'box': [int(px1), int(py1), int(px2), int(py2)],

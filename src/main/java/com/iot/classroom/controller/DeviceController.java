@@ -118,6 +118,17 @@ public class DeviceController {
                     seat.setParticipationCount(seat.getParticipationCount() + 1);
                 }
                 seatRepo.save(seat);
+
+                if (seat.getStudentCode() != null && !seat.getStudentCode().isBlank()) {
+                    studentRepo.findByStudentCode(seat.getStudentCode()).ifPresent(student -> {
+                        if ("using_phone".equals(u.status())) {
+                            student.setViolationCount(student.getViolationCount() + 1);
+                        } else if ("raising_hand".equals(u.status())) {
+                            student.setParticipationCount(student.getParticipationCount() + 1);
+                        }
+                        studentRepo.save(student);
+                    });
+                }
             });
         }
         return ResponseEntity.ok(Map.of("status", "success"));

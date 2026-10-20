@@ -1300,7 +1300,7 @@
         loadBehaviorChart();
         loadEnvStatus();
 
-        // Periodic background refresh
+        // Periodic background refresh (1.2s for real-time camera & seating map sync)
         setInterval(() => {
           const camSeatTab = $('tab-camera-seating');
           if (camSeatTab && camSeatTab.classList.contains('on')) {
@@ -1312,7 +1312,7 @@
           if (dashTab && dashTab.classList.contains('on')) {
             loadEnvStatus().catch(() => {});
           }
-        }, 3000);
+        }, 1200);
 
         setInterval(() => {
           loadEnvChart().catch(() => {});
