@@ -248,14 +248,14 @@
         nextImg.onload = () => {
           if (isCameraRunning && (currentRoomCode || 'A101') === room) {
             img.src = nextImg.src;
-            frameTimer = setTimeout(loadNextFrame, 15);
+            frameTimer = setTimeout(loadNextFrame, 120);
           } else {
             frameLoopActive = false;
           }
         };
         nextImg.onerror = () => {
           if (isCameraRunning && (currentRoomCode || 'A101') === room) {
-            frameTimer = setTimeout(loadNextFrame, 120);
+            frameTimer = setTimeout(loadNextFrame, 250);
           } else {
             frameLoopActive = false;
           }
