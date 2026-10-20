@@ -127,7 +127,7 @@ class RealtimeCapture:
     def _grab_loop(self):
         while self.running:
             if not self.cap or not self.cap.isOpened():
-                time.sleep(0.05)
+                time.sleep(0.02)
                 continue
             ret, frame = self.cap.read()
             if ret:
@@ -136,15 +136,11 @@ class RealtimeCapture:
                     self.frame = frame
                 self.new_frame_event.set()
             else:
-                time.sleep(0.005)
+                time.sleep(0.002)
 
-    def read_latest(self, timeout=0.08):
+    def read_latest(self, timeout=0.03):
         if self.new_frame_event.wait(timeout):
             self.new_frame_event.clear()
-            with self.lock:
-                if not self.ret or self.frame is None:
-                    return False, None
-                return True, self.frame.copy()
         with self.lock:
             if not self.ret or self.frame is None:
                 return False, None
@@ -175,6 +171,7 @@ class VideoProcessor:
         self.current_frame = None
         self.lock = threading.Lock()
         self.thread = None
+        self.ai_thread = None
         self.upload_thread = None
         self.session = requests.Session()
         self.fps = 0.0
@@ -194,6 +191,19 @@ class VideoProcessor:
         self.demo_mode = True
         self.demo_seat_code = 'B1-D1L'
         self.seat_violation_latch = {} # seat_code -> timestamp cua lan vi pham gan nhat (giu canh bao tren so do)
+
+        # Kien truc Da luong Bat dong bo (Async Realtime Engine):
+        # Tach rieng luong Camera Stream (30 FPS, khong delay) va luong AI Worker (YOLO inference ngam)
+        self.raw_frame_lock = threading.Lock()
+        self.latest_raw_frame = None
+        self.new_raw_frame_event = threading.Event()
+        self.ai_lock = threading.Lock()
+        self.ai_boxes = []
+        self.ai_phones = []
+        self.ai_stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
+        self.ai_total_students = 0
+        self.ai_attention_score = 100.0
+        self.ai_phone_alert = False
 
     def fetch_room_layout(self):
         try:
@@ -222,7 +232,9 @@ class VideoProcessor:
             return False, 'Khong the mo Webcam'
 
         self.is_running = True
-        self.thread = threading.Thread(target=self._process_loop, daemon=True)
+        self.ai_thread = threading.Thread(target=self._ai_worker_loop, daemon=True)
+        self.ai_thread.start()
+        self.thread = threading.Thread(target=self._stream_loop, daemon=True)
         self.thread.start()
         self.upload_thread = threading.Thread(target=self._cloud_uploader, daemon=True)
         self.upload_thread.start()
@@ -239,7 +251,9 @@ class VideoProcessor:
             self.mode = 'idle'
             return False, 'Khong the doc video'
         self.is_running = True
-        self.thread = threading.Thread(target=self._process_loop, args=(video_path,), daemon=True)
+        self.ai_thread = threading.Thread(target=self._ai_worker_loop, daemon=True)
+        self.ai_thread.start()
+        self.thread = threading.Thread(target=self._stream_loop, args=(video_path,), daemon=True)
         self.thread.start()
         self.upload_thread = threading.Thread(target=self._cloud_uploader, daemon=True)
         self.upload_thread.start()
@@ -247,10 +261,13 @@ class VideoProcessor:
 
     def stop(self):
         self.is_running = False
+        self.new_raw_frame_event.set()
+        if self.ai_thread and self.ai_thread.is_alive():
+            self.ai_thread.join(timeout=0.3)
         if self.thread and self.thread.is_alive():
-            self.thread.join(timeout=0.4)
+            self.thread.join(timeout=0.3)
         if self.upload_thread and self.upload_thread.is_alive():
-            self.upload_thread.join(timeout=0.4)
+            self.upload_thread.join(timeout=0.3)
         if self.cap:
             try:
                 self.cap.release()
@@ -300,16 +317,17 @@ class VideoProcessor:
 
         threading.Thread(target=_post, daemon=True).start()
 
-    def _process_loop(self, loop_path=None):
+    def _stream_loop(self, loop_path=None):
         """
-        Luong xu ly truc tiep khung hinh:
-        Doc frame moi nhat -> Inference YOLO -> Ve bounding box truc tiep len frame -> Stream muot ma, dong bo 100%.
+        Luong doc webcam va phat hinh anh truc tiep (Realtime Stream Loop):
+        Cap nhat lien tuc 25-30 FPS, khong bi giat lag, triet tieu do tre dong tac thuc.
+        Ve de cac nhan dien AI moi nhat tu luong AI Worker.
         """
         prev_time = time.time()
 
         while self.is_running and self.cap:
             if hasattr(self.cap, 'read_latest'):
-                ret, frame = self.cap.read_latest(timeout=0.04)
+                ret, frame = self.cap.read_latest(timeout=0.03)
             else:
                 ret, frame = self.cap.read()
 
@@ -320,9 +338,71 @@ class VideoProcessor:
                 time.sleep(0.005)
                 continue
 
+            # Chuyen frame cho luong AI Worker
+            with self.raw_frame_lock:
+                self.latest_raw_frame = frame
+            self.new_raw_frame_event.set()
+
             curr_time = time.time()
             self.fps = 1.0 / max(0.001, curr_time - prev_time)
             prev_time = curr_time
+
+            # Lay ket qua AI moi nhat (chay song song, khong lam cham luong cam)
+            with self.ai_lock:
+                boxes_to_draw = list(self.ai_boxes)
+                phones_to_draw = list(self.ai_phones)
+                self.stats = dict(self.ai_stats)
+                self.total_students = self.ai_total_students
+                self.attention_score = self.ai_attention_score
+                self.phone_detected_alert = self.ai_phone_alert
+
+            # 1. Ve bounding boxes nguoi / cho ngoi
+            for (px1, py1, px2, py2, box_color, seat_label) in boxes_to_draw:
+                cv2.rectangle(frame, (px1, py1), (px2, py2), box_color, 2)
+                (lw, lh), _ = cv2.getTextSize(seat_label, cv2.FONT_HERSHEY_SIMPLEX, 0.50, 2)
+                cv2.rectangle(frame, (px1, max(0, py1 - 24)), (px1 + lw + 12, py1), box_color, -1)
+                cv2.putText(frame, seat_label, (px1 + 4, max(16, py1 - 7)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
+
+            # 2. Ve hop thoai dien thoai
+            for (ph_box, ph_conf) in phones_to_draw:
+                cv2.rectangle(frame, (ph_box[0], ph_box[1]), (ph_box[2], ph_box[3]), (40, 40, 235), 2)
+                lbl = f'Dien thoai {int(ph_conf * 100)}%'
+                (lw, lh), _ = cv2.getTextSize(lbl, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                cv2.rectangle(frame, (ph_box[0], max(0, ph_box[1] - 20)), (ph_box[0] + lw + 8, ph_box[1]), (40, 40, 235), -1)
+                cv2.putText(frame, lbl, (ph_box[0] + 4, max(14, ph_box[1] - 5)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+
+            # 3. Ve HUD thong so
+            self._draw_hud(frame)
+
+            # 4. Nen JPEG chat luong cao
+            ret_enc, jpeg = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
+            if ret_enc:
+                with self.lock:
+                    self.current_frame = jpeg.tobytes()
+                    self.frame_id = (self.frame_id + 1) % 1000000
+
+            time.sleep(0.005)
+
+        self.is_running = False
+        self.mode = 'idle'
+
+    def _ai_worker_loop(self):
+        """
+        Luong AI Worker chay ngam doc lap:
+        Thuc thi YOLO11 suy luan tren frame moi nhat voi imgsz=320 (cuc ky tiet kiem CPU, toc do cao).
+        Khong lam cham toc do khung hinh cua video stream.
+        """
+        while self.is_running:
+            if not self.new_raw_frame_event.wait(timeout=0.08):
+                continue
+            self.new_raw_frame_event.clear()
+
+            with self.raw_frame_lock:
+                if self.latest_raw_frame is None:
+                    continue
+                frame = self.latest_raw_frame.copy()
 
             h, w, _ = frame.shape
             stats = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0}
@@ -332,10 +412,9 @@ class VideoProcessor:
             detected_phones = []
             boxes_to_draw = []
 
-            # 1. Phat hien dien thoai bang yolo11n (COCO class 67)
-            # Nang nguong conf len 0.48 va loc ty le dai/rong (1.25 <= aspect_ratio <= 2.8) de loai bo bao dong gia (hop but, vi tien, vat the nho)
+            # 1. Phat hien dien thoai bang yolo11n (COCO class 67, conf=0.48, imgsz=320)
             if obj_model is not None:
-                obj_res = obj_model.predict(frame, classes=[67], conf=0.48, imgsz=416, verbose=False)
+                obj_res = obj_model.predict(frame, classes=[67], conf=0.48, imgsz=320, verbose=False)
                 if len(obj_res) > 0 and obj_res[0].boxes is not None:
                     for b in obj_res[0].boxes:
                         box = b.xyxy[0].cpu().numpy().astype(int)
@@ -347,10 +426,10 @@ class VideoProcessor:
                             detected_phones.append((box, conf))
                             has_phone = True
 
-            # 2. Phat hien hanh vi lop hoc bang bestYolo11n.pt
+            # 2. Phat hien hanh vi lop hoc bang bestYolo11n.pt (imgsz=320)
             behav_boxes = []
             if behavior_model is not None:
-                b_res = behavior_model.predict(frame, conf=0.25, imgsz=416, verbose=False)
+                b_res = behavior_model.predict(frame, conf=0.25, imgsz=320, verbose=False)
                 if len(b_res) > 0 and b_res[0].boxes is not None:
                     for b in b_res[0].boxes:
                         cid = int(b.cls[0].item())
@@ -358,7 +437,7 @@ class VideoProcessor:
                         conf = float(b.conf[0].item())
                         behav_boxes.append((cid, box, conf))
 
-            # 3. Phan loai hanh vi tung hoc sinh (khong danh dong tat ca lop)
+            # 3. Phan loai hanh vi tung hoc sinh
             for (cid, box, conf) in behav_boxes:
                 if cid in BEHAVIOR_CLASSES:
                     total += 1
@@ -377,7 +456,6 @@ class VideoProcessor:
                             student_has_phone = True
                             break
 
-                    # Neu mo hinh bao cid=3 nhung khong co dien thoai va conf < 0.65 -> coi la hoc bai de tranh bao dong gia
                     if cid == 3:
                         if student_has_phone or conf >= 0.65:
                             act_id = 3
@@ -410,9 +488,9 @@ class VideoProcessor:
                     })
                     boxes_to_draw.append((px1, py1, px2, py2, box_color, seat_label))
 
-            # 4. Neu bestYolo11n chua bat duoc hoc sinh, dung pose_model
+            # 4. Neu bestYolo11n chua bat duoc hoc sinh, dung pose_model (imgsz=320)
             if total == 0 and pose_model is not None:
-                p_res = pose_model.predict(frame, conf=0.28, imgsz=416, verbose=False)
+                p_res = pose_model.predict(frame, conf=0.28, imgsz=320, verbose=False)
                 if len(p_res) > 0 and p_res[0].boxes is not None and p_res[0].keypoints is not None:
                     p_boxes = p_res[0].boxes.xyxy.cpu().numpy().astype(int)
                     kpts_data = p_res[0].keypoints.data.cpu().numpy()
@@ -426,7 +504,6 @@ class VideoProcessor:
                         norm_x = cx / max(1, w)
                         norm_y = cy / max(1, h)
 
-                        # Kiem tra xem co dien thoai gan vi tri nay khong
                         student_has_phone = False
                         for (ph_box, ph_conf) in detected_phones:
                             ph_cx = (ph_box[0] + ph_box[2]) / 2.0
@@ -452,7 +529,6 @@ class VideoProcessor:
                             if r_wrist[2] > 0.20 and r_shoulder[2] > 0.20 and r_wrist[1] < r_shoulder[1]:
                                 is_raising = True
 
-                            # Giu trang thai vi pham tren ghe it nhat 5 giay de so do lop kip doi mau
                             if time.time() - self.seat_violation_latch.get(cur_seat, 0) < 5.0:
                                 action_id = 3
                                 action_name = 'Dung dien thoai'
@@ -485,7 +561,7 @@ class VideoProcessor:
                         })
                         boxes_to_draw.append((px1, py1, px2, py2, box_color, seat_label))
 
-            # 5. Neu chi gio dien thoai truoc camera (Solo Demo) hoac phat hien phone
+            # 5. Chi gio dien thoai truoc camera
             if (total == 0 and has_phone and self.demo_mode) or (has_phone and self.demo_mode and stats.get(3, 0) == 0):
                 total = max(1, total)
                 stats[3] = 1
@@ -499,44 +575,18 @@ class VideoProcessor:
             pos = stats.get(0, 0) + stats.get(1, 0) + stats.get(2, 0)
             score = round((pos / max(1, total)) * 100, 1) if total > 0 else 100.0
 
-            # 1. Ve bounding boxes nguoi / cho ngoi truc tiep tren frame
-            for (px1, py1, px2, py2, box_color, seat_label) in boxes_to_draw:
-                cv2.rectangle(frame, (px1, py1), (px2, py2), box_color, 2)
-                (lw, lh), _ = cv2.getTextSize(seat_label, cv2.FONT_HERSHEY_SIMPLEX, 0.50, 2)
-                cv2.rectangle(frame, (px1, max(0, py1 - 24)), (px1 + lw + 12, py1), box_color, -1)
-                cv2.putText(frame, seat_label, (px1 + 4, max(16, py1 - 7)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.50, (255, 255, 255), 2)
+            # Cap nhat vao bo nho chia se
+            with self.ai_lock:
+                self.ai_boxes = boxes_to_draw
+                self.ai_phones = detected_phones
+                self.ai_stats = stats
+                self.ai_total_students = total
+                self.ai_attention_score = score
+                self.ai_phone_alert = (stats.get(3, 0) > 0 or has_phone)
 
-            # 2. Ve hop thoai dien thoai
-            for (ph_box, ph_conf) in detected_phones:
-                cv2.rectangle(frame, (ph_box[0], ph_box[1]), (ph_box[2], ph_box[3]), (40, 40, 235), 2)
-                lbl = f'Dien thoai {int(ph_conf * 100)}%'
-                (lw, lh), _ = cv2.getTextSize(lbl, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
-                cv2.rectangle(frame, (ph_box[0], max(0, ph_box[1] - 20)), (ph_box[0] + lw + 8, ph_box[1]), (40, 40, 235), -1)
-                cv2.putText(frame, lbl, (ph_box[0] + 4, max(14, ph_box[1] - 5)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-
-            # Cap nhat thong so
-            self.stats = stats
-            self.total_students = total
-            self.attention_score = score
-            self.phone_detected_alert = (stats.get(3, 0) > 0 or has_phone)
-
-            # 3. Ve HUD thong so
-            self._draw_hud(frame)
-
-            # 4. Nen JPEG chat luong tot
-            ret_enc, jpeg = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
-            if ret_enc:
-                with self.lock:
-                    self.current_frame = jpeg.tobytes()
-                    self.frame_id = (self.frame_id + 1) % 1000000
-
+            # Dong bo sang Backend Server
             if seat_updates:
                 self._sync_to_backend(seat_updates, stats, total, score)
-
-        self.is_running = False
-        self.mode = 'idle'
 
     def _cloud_uploader(self):
         """Luong day frame len Cloud voi toc do on dinh 8-10 FPS"""
