@@ -15,14 +15,15 @@ public class DataSeeder implements CommandLineRunner {
     private final Repos.ScheduleRepo schedules;
     private final Repos.BehaviorRepo behaviorRepo;
     private final Repos.SeatRepo seatRepo;
+    private final Repos.StudentRepo studentRepo;
     private final PasswordEncoder enc;
 
     public DataSeeder(Repos.UserRepo users, Repos.RoomRepo rooms, Repos.StateRepo states,
                       Repos.ScheduleRepo schedules, Repos.BehaviorRepo behaviorRepo,
-                      Repos.SeatRepo seatRepo, PasswordEncoder enc) {
+                      Repos.SeatRepo seatRepo, Repos.StudentRepo studentRepo, PasswordEncoder enc) {
         this.users = users; this.rooms = rooms; this.states = states;
         this.schedules = schedules; this.behaviorRepo = behaviorRepo;
-        this.seatRepo = seatRepo; this.enc = enc;
+        this.seatRepo = seatRepo; this.studentRepo = studentRepo; this.enc = enc;
     }
 
     @Override public void run(String... args) {
@@ -77,12 +78,10 @@ public class DataSeeder implements CommandLineRunner {
         });
 
         seedSampleBehaviors();
-        seedSeats();
+        seedSeatsAndStudents();
     }
 
-    private void seedSeats() {
-        if (seatRepo.count() >= 40) return;
-        seatRepo.deleteAll();
+    private void seedSeatsAndStudents() {
         Room a = rooms.findByCode("A101").orElse(null);
         if (a == null) {
             a = rooms.findAll().stream().findFirst().orElse(null);
@@ -141,32 +140,78 @@ public class DataSeeder implements CommandLineRunner {
         int totalCols = 4;
         int totalRows = 5;
 
-        for (String[] st : students) {
-            int row = Integer.parseInt(st[2]);
-            int col = Integer.parseInt(st[3]);
-            String side = st[4];
+        if (seatRepo.count() < 40) {
+            seatRepo.deleteAll();
+            for (String[] st : students) {
+                int row = Integer.parseInt(st[2]);
+                int col = Integer.parseInt(st[3]);
+                String side = st[4];
 
-            String code = "B" + row + "-D" + col + side;
+                String code = "B" + row + "-D" + col + side;
 
-            double cellW = 1.0 / totalCols;
-            double cellH = 1.0 / totalRows;
-            double baseX = (col - 1) * cellW;
-            double baseY = (row - 1) * cellH;
+                double cellW = 1.0 / totalCols;
+                double cellH = 1.0 / totalRows;
+                double baseX = (col - 1) * cellW;
+                double baseY = (row - 1) * cellH;
 
-            double x1, x2;
-            if ("L".equals(side)) {
-                x1 = baseX;
-                x2 = baseX + cellW / 2;
-            } else {
-                x1 = baseX + cellW / 2;
-                x2 = baseX + cellW;
+                double x1, x2;
+                if ("L".equals(side)) {
+                    x1 = baseX;
+                    x2 = baseX + cellW / 2;
+                } else {
+                    x1 = baseX + cellW / 2;
+                    x2 = baseX + cellW;
+                }
+
+                DeskSeat seat = new DeskSeat(a.getId(), code, st[0], st[1], row, col, side,
+                        x1, baseY, x2, baseY + cellH);
+                seat.setCurrentAction("Hoc bai");
+                seat.setCurrentStatus("studying");
+                seatRepo.save(seat);
+            }
+        }
+
+        // Seed hoc sinh neu chua co
+        if (studentRepo.count() == 0) {
+            int idx = 1;
+            for (String[] st : students) {
+                String code = "B" + st[2] + "-D" + st[3] + st[4];
+                String sCode = st[0];
+                String sName = st[1];
+                boolean isFemale = sName.contains("Thị") || sName.contains("Linh") || sName.contains("Thảo")
+                        || sName.contains("Dung") || sName.contains("Ngọc") || sName.contains("Hường")
+                        || sName.contains("Hân") || sName.contains("Lan") || sName.contains("Nhung") || sName.contains("Hằng") || sName.contains("Ánh");
+                String gender = isFemale ? "Nữ" : "Nam";
+                String dob = "2008-" + String.format("%02d", (idx % 12) + 1) + "-" + String.format("%02d", (idx % 27) + 1);
+                String phone = "098" + String.format("%07d", 1234000 + idx);
+
+                Student s = new Student(sCode, sName, "12A1", gender, dob, phone, a.getId(), code);
+                s.setEmail(sCode.toLowerCase() + "@smartclass.edu.vn");
+                s.setNotes("Học sinh lớp 12A1 - Chuyên cần");
+                studentRepo.save(s);
+                idx++;
             }
 
-            DeskSeat seat = new DeskSeat(a.getId(), code, st[0], st[1], row, col, side,
-                    x1, baseY, x2, baseY + cellH);
-            seat.setCurrentAction("Hoc bai");
-            seat.setCurrentStatus("studying");
-            seatRepo.save(seat);
+            // Them cac hoc sinh cho xep cho (Lop 12A1 va Lop 11B2)
+            String[][] extraStudents = {
+                {"HS41", "Phạm Gia Khiêm", "12A1", "Nam", "2008-04-12", "0987111222"},
+                {"HS42", "Nguyễn Thảo My", "12A1", "Nữ", "2008-07-25", "0987111333"},
+                {"HS43", "Trịnh Bá Đạt", "12A1", "Nam", "2008-09-18", "0987111444"},
+                {"HS44", "Lương Kim Ngân", "12A1", "Nữ", "2008-11-03", "0987111555"},
+                {"HS45", "Đoàn Nhật Minh", "12A1", "Nam", "2008-12-30", "0987111666"},
+                {"HS46", "Lê Minh Tuấn", "11B2", "Nam", "2009-02-14", "0976222333"},
+                {"HS47", "Trần Bảo Vy", "11B2", "Nữ", "2009-05-20", "0976222444"},
+                {"HS48", "Nguyễn Hải Phong", "11B2", "Nam", "2009-08-09", "0976222555"},
+                {"HS49", "Vũ Khánh An", "11B2", "Nữ", "2009-10-15", "0976222666"},
+                {"HS50", "Đặng Hoàng Yến", "11B2", "Nữ", "2009-12-01", "0976222777"}
+            };
+            for (String[] ex : extraStudents) {
+                Student s = new Student(ex[0], ex[1], ex[2], ex[3], ex[4], ex[5], null, null);
+                s.setEmail(ex[0].toLowerCase() + "@smartclass.edu.vn");
+                s.setStatus("unassigned");
+                s.setNotes("Chờ phân công chỗ ngồi");
+                studentRepo.save(s);
+            }
         }
     }
 

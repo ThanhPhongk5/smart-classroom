@@ -32,4 +32,12 @@ public final class Repos {
         @Transactional
         void deleteByRoomId(Long roomId);
     }
+    public interface StudentRepo extends JpaRepository<Student, Long> {
+        Optional<Student> findByStudentCode(String studentCode);
+        List<Student> findByRoomIdOrderByStudentCodeAsc(Long roomId);
+        List<Student> findByClassNameOrderByStudentCodeAsc(String className);
+        List<Student> findByRoomIdIsNull();
+        List<Student> findAllByOrderByStudentCodeAsc();
+        List<Student> findByRoomId(Long roomId);
+    }
 }

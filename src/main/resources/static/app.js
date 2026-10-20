@@ -79,6 +79,11 @@
           checkCameraStatus();
           loadSeats();
         }
+        if (btn.dataset.tab === 'tab-students') {
+          loadStudents();
+          loadStudentSummary();
+          loadStudentClassFilter();
+        }
         if (btn.dataset.tab === 'tab-dashboard') { loadEnvStatus(); loadEnvChart(); }
         if (btn.dataset.tab === 'tab-schedule') { loadSchedules(); }
         if (btn.dataset.tab === 'tab-admin-users') { loadUsers(); }
@@ -951,7 +956,320 @@
       loadSchedules();
       loadLogs();
       checkCameraStatus();
+      if ($('tab-students') && $('tab-students').classList.contains('on')) {
+        loadStudents();
+        loadStudentSummary();
+      }
     };
+
+    // ================= 7. STUDENT MANAGEMENT =================
+    let studentSearchDebounce = null;
+    let allRoomsCache = [];
+
+    function debounceFilterStudents() {
+      clearTimeout(studentSearchDebounce);
+      studentSearchDebounce = setTimeout(() => {
+        loadStudents();
+      }, 300);
+    }
+
+    async function loadStudentClassFilter() {
+      try {
+        const classes = await fetchApi('/api/students/classes');
+        const select = $('stClassFilter');
+        if (!select) return;
+        const currentVal = select.value;
+        select.innerHTML = '<option value="all">Tất cả các lớp</option>';
+        if (Array.isArray(classes)) {
+          classes.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c;
+            opt.textContent = 'Lớp ' + c;
+            select.appendChild(opt);
+          });
+        }
+        if (currentVal) select.value = currentVal;
+      } catch (err) {
+        console.error('Lỗi tải danh sách lớp:', err);
+      }
+    }
+
+    async function loadStudentSummary() {
+      try {
+        const summary = await fetchApi('/api/students/summary');
+        if (!summary) return;
+        if ($('stStatTotal')) $('stStatTotal').textContent = summary.total || 0;
+        if ($('stStatAssigned')) $('stStatAssigned').textContent = summary.assigned || 0;
+        if ($('stStatUnassigned')) $('stStatUnassigned').textContent = summary.unassigned || 0;
+        if ($('stStatViolations')) $('stStatViolations').textContent = summary.totalViolations || 0;
+        if ($('stStatParticipations')) $('stStatParticipations').textContent = summary.totalParticipations || 0;
+      } catch (err) {
+        console.error('Lỗi tải thống kê học sinh:', err);
+      }
+    }
+
+    async function loadStudents() {
+      const tbody = $('studentTableBody');
+      if (!tbody) return;
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding: 24px; color: var(--text-muted);">Đang nạp danh sách học sinh...</td></tr>';
+
+      try {
+        const search = $('stSearchInput') ? $('stSearchInput').value.trim() : '';
+        const className = $('stClassFilter') ? $('stClassFilter').value : 'all';
+        const status = $('stStatusFilter') ? $('stStatusFilter').value : 'all';
+
+        let url = '/api/students?';
+        const params = [];
+        if (search) params.push('search=' + encodeURIComponent(search));
+        if (className && className !== 'all') params.push('className=' + encodeURIComponent(className));
+        if (status && status !== 'all') params.push('status=' + encodeURIComponent(status));
+        url += params.join('&');
+
+        const students = await fetchApi(url);
+        if (!Array.isArray(students) || students.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; padding: 24px; color: var(--text-muted);">Không tìm thấy học sinh nào phù hợp tiêu chí.</td></tr>';
+          return;
+        }
+
+        // Cache rooms if needed
+        if (allRoomsCache.length === 0) {
+          try {
+            allRoomsCache = await fetchApi('/api/rooms') || [];
+          } catch (_) {}
+        }
+
+        const roomMap = {};
+        allRoomsCache.forEach(r => { roomMap[r.id] = r.code; });
+
+        let html = '';
+        students.forEach(s => {
+          const roomCode = s.roomId ? (roomMap[s.roomId] || ('Phòng ' + s.roomId)) : 'Chưa xếp phòng';
+          const seatDisplay = s.seatCode ? `<b style="font-family: var(--mono); color: var(--accent);">${s.seatCode}</b>` : `<span class="badge warning">Chờ xếp chỗ</span>`;
+          
+          let statusBadge = '';
+          if (s.status === 'studying') {
+            statusBadge = `<span class="badge success">Đang học</span>`;
+          } else if (s.status === 'unassigned') {
+            statusBadge = `<span class="badge warning">Chờ xếp chỗ</span>`;
+          } else {
+            statusBadge = `<span class="badge danger">Vắng</span>`;
+          }
+
+          const violBadge = s.violationCount > 0 
+            ? `<span class="badge danger">${s.violationCount}</span>` 
+            : `<span style="color: var(--text-muted);">0</span>`;
+          const partBadge = s.participationCount > 0 
+            ? `<span class="badge" style="background: #e0f2fe; color: #0284c7; font-weight: 600;">${s.participationCount}</span>` 
+            : `<span style="color: var(--text-muted);">0</span>`;
+
+          const escapedStudent = encodeURIComponent(JSON.stringify(s));
+
+          html += `
+            <tr>
+              <td><b style="font-family: var(--mono); font-size: 13px;">${s.studentCode}</b></td>
+              <td><b>${s.fullName}</b></td>
+              <td><span class="badge" style="background: var(--surface-muted); color: var(--text); border: 1px solid var(--border);">${s.className || '12A1'}</span></td>
+              <td>${s.gender || 'Nam'}</td>
+              <td>${roomCode}</td>
+              <td>${seatDisplay}</td>
+              <td style="text-align: center;">${violBadge}</td>
+              <td style="text-align: center;">${partBadge}</td>
+              <td>${statusBadge}</td>
+              <td>
+                <div style="display: flex; gap: 6px;">
+                  <button class="button small" onclick="openAssignSeatModal(decodeURIComponent('${escapedStudent}'))">Xếp chỗ</button>
+                  <button class="button small" onclick="openEditStudentModal(decodeURIComponent('${escapedStudent}'))">Sửa</button>
+                  <button class="button small danger" onclick="deleteStudent(${s.id}, '${s.fullName.replace(/'/g, "\\'")}')">Xóa</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+
+        tbody.innerHTML = html;
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; padding: 24px; color: var(--danger);">Lỗi khi nạp dữ liệu: ${err.message}</td></tr>`;
+      }
+    }
+
+    function openCreateStudentModal() {
+      $('studentFormId').value = '';
+      $('studentFormCode').value = '';
+      $('studentFormCode').readOnly = false;
+      $('studentFormName').value = '';
+      $('studentFormClass').value = '12A1';
+      $('studentFormGender').value = 'Nam';
+      $('studentFormDob').value = '2008-01-01';
+      $('studentFormPhone').value = '';
+      $('studentFormEmail').value = '';
+      $('studentFormNotes').value = '';
+      $('modalStudentFormTitle').textContent = 'Thêm Học sinh Mới';
+      openModal('modalStudentForm');
+    }
+
+    function openEditStudentModal(raw) {
+      const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      $('studentFormId').value = s.id;
+      $('studentFormCode').value = s.studentCode || '';
+      $('studentFormCode').readOnly = true;
+      $('studentFormName').value = s.fullName || '';
+      $('studentFormClass').value = s.className || '12A1';
+      $('studentFormGender').value = s.gender || 'Nam';
+      $('studentFormDob').value = s.dateOfBirth || '2008-01-01';
+      $('studentFormPhone').value = s.phone || '';
+      $('studentFormEmail').value = s.email || '';
+      $('studentFormNotes').value = s.notes || '';
+      $('modalStudentFormTitle').textContent = 'Chỉnh sửa Thông tin Học sinh';
+      openModal('modalStudentForm');
+    }
+
+    async function saveStudent() {
+      const id = $('studentFormId').value;
+      const studentCode = $('studentFormCode').value.trim();
+      const fullName = $('studentFormName').value.trim();
+      const className = $('studentFormClass').value.trim();
+      const gender = $('studentFormGender').value;
+      const dateOfBirth = $('studentFormDob').value;
+      const phone = $('studentFormPhone').value.trim();
+      const email = $('studentFormEmail').value.trim();
+      const notes = $('studentFormNotes').value.trim();
+
+      if (!studentCode) { alert('Vui lòng nhập Mã học sinh!'); return; }
+      if (!fullName) { alert('Vui lòng nhập Họ và tên học sinh!'); return; }
+
+      const body = {
+        studentCode, fullName, className, gender, dateOfBirth, phone, email, notes
+      };
+
+      try {
+        if (id) {
+          await fetchApi('/api/students/' + id, { method: 'PUT', body });
+          showToast('Đã cập nhật thông tin học sinh ' + fullName);
+        } else {
+          await fetchApi('/api/students', { method: 'POST', body });
+          showToast('Đã thêm mới học sinh ' + fullName);
+        }
+        closeModal('modalStudentForm');
+        loadStudents();
+        loadStudentSummary();
+        loadStudentClassFilter();
+      } catch (err) {
+        alert(err.message || 'Lỗi khi lưu thông tin học sinh');
+      }
+    }
+
+    async function deleteStudent(id, name) {
+      if (!confirm(`Bạn có chắc chắn muốn xóa học sinh "${name}" khỏi hệ thống?`)) return;
+      try {
+        await fetchApi('/api/students/' + id, { method: 'DELETE' });
+        showToast('Đã xóa học sinh ' + name);
+        loadStudents();
+        loadStudentSummary();
+        if (currentRoomId) loadSeats();
+      } catch (err) {
+        alert(err.message || 'Lỗi khi xóa học sinh');
+      }
+    }
+
+    let currentAssignStudent = null;
+
+    async function openAssignSeatModal(raw) {
+      const s = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      currentAssignStudent = s;
+      $('assignStudentId').value = s.id;
+      $('assignStudentInfo').value = `${s.studentCode} - ${s.fullName} (Lớp ${s.className || '12A1'})`;
+
+      try {
+        const rooms = await fetchApi('/api/rooms');
+        const roomSelect = $('assignRoomSelect');
+        roomSelect.innerHTML = '';
+        if (Array.isArray(rooms)) {
+          rooms.forEach(r => {
+            const opt = document.createElement('option');
+            opt.value = r.id;
+            opt.textContent = `${r.code} - ${r.name}`;
+            if (s.roomId === r.id || (!s.roomId && r.id === currentRoomId)) {
+              opt.selected = true;
+            }
+            roomSelect.appendChild(opt);
+          });
+        }
+        await onAssignRoomChanged();
+        openModal('modalAssignSeat');
+      } catch (err) {
+        alert('Lỗi khi nạp danh sách phòng: ' + err.message);
+      }
+    }
+
+    async function onAssignRoomChanged() {
+      const roomId = $('assignRoomSelect').value;
+      const seatSelect = $('assignSeatSelect');
+      seatSelect.innerHTML = '<option value="">Chờ xếp chỗ (Không xếp ghế)</option>';
+      if (!roomId) return;
+
+      try {
+        const seats = await fetchApi('/api/rooms/' + roomId + '/seats');
+        if (Array.isArray(seats)) {
+          seats.forEach(st => {
+            const opt = document.createElement('option');
+            opt.value = st.seatCode;
+            const currentHolder = st.studentName ? ` (Đang ngồi: ${st.studentName})` : ' [Còn trống]';
+            opt.textContent = `${st.seatCode}${currentHolder}`;
+            if (currentAssignStudent && currentAssignStudent.roomId == roomId && currentAssignStudent.seatCode === st.seatCode) {
+              opt.selected = true;
+            }
+            seatSelect.appendChild(opt);
+          });
+        }
+      } catch (err) {
+        console.error('Lỗi nạp ghế ngồi:', err);
+      }
+    }
+
+    async function confirmAssignSeat() {
+      const studentId = $('assignStudentId').value;
+      const roomId = $('assignRoomSelect').value;
+      const seatCode = $('assignSeatSelect').value;
+
+      try {
+        await fetchApi(`/api/students/${studentId}/assign-seat`, {
+          method: 'POST',
+          body: { roomId: roomId ? parseInt(roomId) : null, seatCode: seatCode || null }
+        });
+        showToast('Đã phân công chỗ ngồi thành công');
+        closeModal('modalAssignSeat');
+        loadStudents();
+        loadStudentSummary();
+        if (currentRoomId) loadSeats();
+      } catch (err) {
+        alert(err.message || 'Lỗi khi phân công chỗ ngồi');
+      }
+    }
+
+    async function autoAssignSeats() {
+      if (!currentRoomId) {
+        alert('Vui lòng chọn một phòng học trước!');
+        return;
+      }
+      const className = $('stClassFilter') ? $('stClassFilter').value : 'all';
+      try {
+        const res = await fetchApi(`/api/students/auto-assign/${currentRoomId}?className=${encodeURIComponent(className)}`, {
+          method: 'POST'
+        });
+        showToast(res.message || 'Đã tự động xếp chỗ thành công!');
+        loadStudents();
+        loadStudentSummary();
+        loadSeats();
+      } catch (err) {
+        alert(err.message || 'Lỗi khi tự động xếp chỗ');
+      }
+    }
+
+    if ($('btnOpenCreateStudent')) $('btnOpenCreateStudent').onclick = openCreateStudentModal;
+    if ($('btnSaveStudent')) $('btnSaveStudent').onclick = saveStudent;
+    if ($('btnConfirmAssignSeat')) $('btnConfirmAssignSeat').onclick = confirmAssignSeat;
+    if ($('btnAutoAssignSeats')) $('btnAutoAssignSeats').onclick = autoAssignSeats;
+    if ($('stSearchInput')) $('stSearchInput').oninput = debounceFilterStudents;
 
     (async () => {
       try {

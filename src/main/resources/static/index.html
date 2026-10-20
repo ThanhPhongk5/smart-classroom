@@ -976,6 +976,7 @@
       <nav class="shell-nav">
         <div class="shell-nav-title">Giảng dạy & Giám sát</div>
         <button class="nav-tab-btn on" data-tab="tab-camera-seating">Camera AI & Sơ đồ lớp học</button>
+        <button class="nav-tab-btn" data-tab="tab-students">Quản lý Học sinh</button>
         <button class="nav-tab-btn" data-tab="tab-dashboard">Điều khiển Thiết bị & Môi trường</button>
         <button class="nav-tab-btn" data-tab="tab-schedule">Thời khóa biểu</button>
 
@@ -1131,6 +1132,82 @@
             <div style="height: 240px; position: relative;">
               <canvas id="behaviorChart"></canvas>
             </div>
+          </div>
+        </div>
+
+        <!-- ================= TAB: QUẢN LÝ HỌC SINH THPT ================= -->
+        <div id="tab-students" class="tab">
+          <!-- Student Stats Overview -->
+          <div class="metric-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 20px;">
+            <div class="metric-card">
+              <h4>Tổng số học sinh</h4>
+              <div class="metric-value"><span id="stStatTotal">0</span> <small>học sinh</small></div>
+              <div class="metric-sub">Hồ sơ trong hệ thống</div>
+            </div>
+            <div class="metric-card">
+              <h4>Đang có chỗ ngồi</h4>
+              <div class="metric-value" style="color: var(--success);"><span id="stStatAssigned">0</span> <small>em</small></div>
+              <div class="metric-sub">Đã xếp vào phòng học</div>
+            </div>
+            <div class="metric-card">
+              <h4>Chờ xếp chỗ</h4>
+              <div class="metric-value" style="color: var(--warning);"><span id="stStatUnassigned">0</span> <small>em</small></div>
+              <div class="metric-sub">Chưa có vị trí ghế</div>
+            </div>
+            <div class="metric-card">
+              <h4>Vi phạm nề nếp</h4>
+              <div class="metric-value" style="color: var(--danger);"><span id="stStatViolations">0</span> <small>lần</small></div>
+              <div class="metric-sub">Dùng điện thoại, gục đầu</div>
+            </div>
+            <div class="metric-card">
+              <h4>Tích cực phát biểu</h4>
+              <div class="metric-value" style="color: var(--accent);"><span id="stStatParticipations">0</span> <small>lần</small></div>
+              <div class="metric-sub">Camera AI phát hiện giơ tay</div>
+            </div>
+          </div>
+
+          <!-- Students Directory Table Panel -->
+          <div class="panel">
+            <div class="panel-title" style="flex-wrap: wrap; gap: 14px;">
+              <div>
+                <h2>Danh sách Hồ sơ Học sinh THPT</h2>
+                <p style="font-size: 13px; color: var(--text-muted); margin-top: 2px;">
+                  Quản lý hồ sơ, lớp học, phân công chỗ ngồi và theo dõi nề nếp học tập theo thời gian thực
+                </p>
+              </div>
+              <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                <input type="text" id="stSearchInput" class="input" style="height: 34px; font-size: 13px; width: 200px;" placeholder="Tìm tên, mã HS, lớp...">
+                <select id="stClassFilter" class="select" style="height: 34px; font-size: 13px; min-width: 130px;">
+                  <option value="all">Tất cả các lớp</option>
+                </select>
+                <select id="stStatusFilter" class="select" style="height: 34px; font-size: 13px; min-width: 140px;">
+                  <option value="all">Tất cả trạng thái</option>
+                  <option value="studying">Đang ngồi học</option>
+                  <option value="unassigned">Chờ xếp chỗ</option>
+                </select>
+                <button class="button primary small" id="btnOpenCreateStudent">Thêm học sinh</button>
+                <button class="button small" id="btnAutoAssignSeats" title="Tự động xếp học sinh chưa có chỗ vào các ghế trống của phòng">Tự động xếp chỗ</button>
+                <button class="button small" onclick="loadStudents(); loadStudentSummary();">Làm mới</button>
+              </div>
+            </div>
+
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Mã HS</th>
+                  <th>Họ và tên</th>
+                  <th>Lớp</th>
+                  <th>Giới tính</th>
+                  <th>Phòng học</th>
+                  <th>Vị trí ghế</th>
+                  <th>Vi phạm AI</th>
+                  <th>Giơ tay</th>
+                  <th>Trạng thái</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
+              <tbody id="studentTableBody"></tbody>
+            </table>
           </div>
         </div>
 
@@ -1584,6 +1661,94 @@
       <div class="modal-footer">
         <button class="button" onclick="closeModal('modalAddSchedule')">Hủy</button>
         <button class="button primary" id="btnSubmitAddSchedule">Lưu tiết học</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 7. Create/Edit Student Modal -->
+  <div class="modal-backdrop" id="modalStudentForm">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3 id="modalStudentFormTitle">Thêm Học sinh Mới</h3>
+        <button class="modal-close" onclick="closeModal('modalStudentForm')">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="studentFormId">
+        <div class="form-row">
+          <label>Mã học sinh *:</label>
+          <input type="text" id="studentFormCode" class="input" placeholder="Ví dụ: HS51">
+        </div>
+        <div class="form-row">
+          <label>Họ và tên *:</label>
+          <input type="text" id="studentFormName" class="input" placeholder="Ví dụ: Nguyễn Văn An">
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-row">
+            <label>Lớp học *:</label>
+            <input type="text" id="studentFormClass" class="input" placeholder="Ví dụ: 12A1" value="12A1">
+          </div>
+          <div class="form-row">
+            <label>Giới tính:</label>
+            <select id="studentFormGender" class="select">
+              <option value="Nam">Nam</option>
+              <option value="Nữ">Nữ</option>
+            </select>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+          <div class="form-row">
+            <label>Ngày sinh:</label>
+            <input type="date" id="studentFormDob" class="input" value="2008-01-01">
+          </div>
+          <div class="form-row">
+            <label>Số điện thoại liên hệ:</label>
+            <input type="text" id="studentFormPhone" class="input" placeholder="Ví dụ: 0912345678">
+          </div>
+        </div>
+        <div class="form-row">
+          <label>Email học sinh:</label>
+          <input type="email" id="studentFormEmail" class="input" placeholder="Ví dụ: hs51@smartclass.edu.vn">
+        </div>
+        <div class="form-row">
+          <label>Ghi chú học tập:</label>
+          <textarea id="studentFormNotes" class="input" rows="2" placeholder="Ghi chú về học lực, nề nếp..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="button" onclick="closeModal('modalStudentForm')">Hủy</button>
+        <button class="button primary" id="btnSaveStudent">Lưu thông tin</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 8. Assign Seat Modal -->
+  <div class="modal-backdrop" id="modalAssignSeat">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>Phân công Chỗ ngồi Học sinh</h3>
+        <button class="modal-close" onclick="closeModal('modalAssignSeat')">×</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="assignStudentId">
+        <div class="form-row">
+          <label>Học sinh:</label>
+          <input type="text" id="assignStudentInfo" class="input" readonly style="background: var(--surface-muted); font-weight: 700;">
+        </div>
+        <div class="form-row">
+          <label>Phòng học:</label>
+          <select id="assignRoomSelect" class="select" onchange="onAssignRoomChanged()">
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Vị trí ghế ngồi:</label>
+          <select id="assignSeatSelect" class="select">
+            <option value="">Chờ xếp chỗ (Không xếp ghế)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="button" onclick="closeModal('modalAssignSeat')">Hủy</button>
+        <button class="button primary" id="btnConfirmAssignSeat">Xác nhận xếp chỗ</button>
       </div>
     </div>
   </div>

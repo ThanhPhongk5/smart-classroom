@@ -20,15 +20,16 @@ public class RoomController {
     private final Repos.UserRepo users;
     private final Repos.BehaviorRepo behaviorRepo;
     private final Repos.SeatRepo seatRepo;
+    private final Repos.StudentRepo studentRepo;
     private final AutomationService automation;
 
     public RoomController(Repos.RoomRepo rooms, Repos.ReadingRepo readings,
                           Repos.StateRepo states, Repos.LogRepo logs,
                           Repos.UserRepo users, Repos.BehaviorRepo behaviorRepo,
-                          Repos.SeatRepo seatRepo, AutomationService automation) {
+                          Repos.SeatRepo seatRepo, Repos.StudentRepo studentRepo, AutomationService automation) {
         this.rooms = rooms; this.readings = readings; this.states = states;
         this.logs = logs; this.users = users; this.behaviorRepo = behaviorRepo;
-        this.seatRepo = seatRepo; this.automation = automation;
+        this.seatRepo = seatRepo; this.studentRepo = studentRepo; this.automation = automation;
     }
 
     @GetMapping("/me")
@@ -192,6 +193,17 @@ public class RoomController {
 
         seatRepo.save(seat);
 
+        // Dong bo vao ho so hoc sinh
+        if (seat.getStudentCode() != null && !seat.getStudentCode().isBlank()) {
+            studentRepo.findByStudentCode(seat.getStudentCode()).ifPresent(st -> {
+                if (req.studentName() != null) st.setFullName(req.studentName().trim());
+                if (req.notes() != null) st.setNotes(req.notes().trim());
+                st.setRoomId(roomId);
+                st.setSeatCode(seatCode);
+                studentRepo.save(st);
+            });
+        }
+
         String actor = auth != null ? auth.getName() : "USER";
         logs.save(new ActionLog(roomId, "Cập nhật thông tin ghế " + seatCode + ": " + seat.getStudentName(), actor));
 
@@ -239,6 +251,18 @@ public class RoomController {
         List<DeskSeat> oldSeats = seatRepo.findByRoomIdOrderByRowNumAscColNumAsc(id);
         seatRepo.deleteAll(oldSeats);
 
+        // Lay danh sach hoc sinh cua phong nay va danh sach cho xep cho
+        List<Student> roomStudents = new ArrayList<>(studentRepo.findByRoomIdOrderByStudentCodeAsc(id));
+        List<Student> unassignedStudents = new ArrayList<>(studentRepo.findByRoomIdIsNull());
+
+        // Neu giam cho (vi du 40 xuong 20), cac hoc sinh vuot qua suc chua se chuyen sang trang thai cho xep (khong bi xoa)
+        for (int i = totalCap; i < roomStudents.size(); i++) {
+            Student extra = roomStudents.get(i);
+            extra.setSeatCode(null);
+            extra.setStatus("unassigned");
+            studentRepo.save(extra);
+        }
+
         List<DeskSeat> newSeats = new ArrayList<>();
         int studentIdx = 1;
         double cellW = 1.0 / cols;
@@ -264,8 +288,30 @@ public class RoomController {
 
                 if (perDesk == 1) {
                     String code = "B" + row + "-D" + col;
-                    String sCode = String.format("HS%02d", studentIdx);
-                    String sName = (studentIdx <= sampleNames.length) ? sampleNames[studentIdx - 1] : ("Học sinh " + studentIdx);
+                    String sCode;
+                    String sName;
+                    if (studentIdx <= roomStudents.size() && studentIdx <= totalCap) {
+                        Student st = roomStudents.get(studentIdx - 1);
+                        sCode = st.getStudentCode();
+                        sName = st.getFullName();
+                        st.setSeatCode(code);
+                        st.setStatus("studying");
+                        studentRepo.save(st);
+                    } else if (!unassignedStudents.isEmpty()) {
+                        Student st = unassignedStudents.remove(0);
+                        sCode = st.getStudentCode();
+                        sName = st.getFullName();
+                        st.setRoomId(id);
+                        st.setSeatCode(code);
+                        st.setStatus("studying");
+                        studentRepo.save(st);
+                    } else {
+                        sCode = String.format("HS%02d", studentIdx);
+                        sName = (studentIdx <= sampleNames.length) ? sampleNames[studentIdx - 1] : ("Học sinh " + studentIdx);
+                        Student newSt = new Student(sCode, sName, "12A1", "Nam", "2008-01-01", "", id, code);
+                        studentRepo.save(newSt);
+                    }
+
                     DeskSeat seat = new DeskSeat(id, code, sCode, sName, row, col, "C",
                             baseX, baseY, baseX + cellW, baseY + cellH);
                     seat.setCurrentStatus("studying");
@@ -274,8 +320,30 @@ public class RoomController {
                     studentIdx++;
                 } else {
                     String codeL = "B" + row + "-D" + col + "L";
-                    String sCodeL = String.format("HS%02d", studentIdx);
-                    String sNameL = (studentIdx <= sampleNames.length) ? sampleNames[studentIdx - 1] : ("Học sinh " + studentIdx);
+                    String sCodeL;
+                    String sNameL;
+                    if (studentIdx <= roomStudents.size() && studentIdx <= totalCap) {
+                        Student st = roomStudents.get(studentIdx - 1);
+                        sCodeL = st.getStudentCode();
+                        sNameL = st.getFullName();
+                        st.setSeatCode(codeL);
+                        st.setStatus("studying");
+                        studentRepo.save(st);
+                    } else if (!unassignedStudents.isEmpty()) {
+                        Student st = unassignedStudents.remove(0);
+                        sCodeL = st.getStudentCode();
+                        sNameL = st.getFullName();
+                        st.setRoomId(id);
+                        st.setSeatCode(codeL);
+                        st.setStatus("studying");
+                        studentRepo.save(st);
+                    } else {
+                        sCodeL = String.format("HS%02d", studentIdx);
+                        sNameL = (studentIdx <= sampleNames.length) ? sampleNames[studentIdx - 1] : ("Học sinh " + studentIdx);
+                        Student newSt = new Student(sCodeL, sNameL, "12A1", "Nam", "2008-01-01", "", id, codeL);
+                        studentRepo.save(newSt);
+                    }
+
                     DeskSeat seatL = new DeskSeat(id, codeL, sCodeL, sNameL, row, col, "L",
                             baseX, baseY, baseX + cellW / 2, baseY + cellH);
                     seatL.setCurrentStatus("studying");
@@ -284,8 +352,30 @@ public class RoomController {
                     studentIdx++;
 
                     String codeR = "B" + row + "-D" + col + "R";
-                    String sCodeR = String.format("HS%02d", studentIdx);
-                    String sNameR = (studentIdx <= sampleNames.length) ? sampleNames[studentIdx - 1] : ("Học sinh " + studentIdx);
+                    String sCodeR;
+                    String sNameR;
+                    if (studentIdx <= roomStudents.size() && studentIdx <= totalCap) {
+                        Student st = roomStudents.get(studentIdx - 1);
+                        sCodeR = st.getStudentCode();
+                        sNameR = st.getFullName();
+                        st.setSeatCode(codeR);
+                        st.setStatus("studying");
+                        studentRepo.save(st);
+                    } else if (!unassignedStudents.isEmpty()) {
+                        Student st = unassignedStudents.remove(0);
+                        sCodeR = st.getStudentCode();
+                        sNameR = st.getFullName();
+                        st.setRoomId(id);
+                        st.setSeatCode(codeR);
+                        st.setStatus("studying");
+                        studentRepo.save(st);
+                    } else {
+                        sCodeR = String.format("HS%02d", studentIdx);
+                        sNameR = (studentIdx <= sampleNames.length) ? sampleNames[studentIdx - 1] : ("Học sinh " + studentIdx);
+                        Student newSt = new Student(sCodeR, sNameR, "12A1", "Nam", "2008-01-01", "", id, codeR);
+                        studentRepo.save(newSt);
+                    }
+
                     DeskSeat seatR = new DeskSeat(id, codeR, sCodeR, sNameR, row, col, "R",
                             baseX + cellW / 2, baseY, baseX + cellW, baseY + cellH);
                     seatR.setCurrentStatus("studying");

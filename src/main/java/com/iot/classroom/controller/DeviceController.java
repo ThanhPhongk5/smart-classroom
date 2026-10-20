@@ -20,6 +20,7 @@ public class DeviceController {
     private final Repos.RoomRepo rooms;
     private final Repos.BehaviorRepo behaviorRepo;
     private final Repos.SeatRepo seatRepo;
+    private final Repos.StudentRepo studentRepo;
     private final Repos.LogRepo logs;
     @Value("${app.device-key}") private String deviceKey;
 
@@ -39,11 +40,12 @@ public class DeviceController {
 
     public DeviceController(AutomationService automation, Repos.RoomRepo rooms,
                             Repos.BehaviorRepo behaviorRepo, Repos.SeatRepo seatRepo,
-                            Repos.LogRepo logs) {
+                            Repos.StudentRepo studentRepo, Repos.LogRepo logs) {
         this.automation = automation;
         this.rooms = rooms;
         this.behaviorRepo = behaviorRepo;
         this.seatRepo = seatRepo;
+        this.studentRepo = studentRepo;
         this.logs = logs;
     }
 
@@ -303,6 +305,18 @@ public class DeviceController {
                         seat.setParticipationCount(seat.getParticipationCount() + 1);
                     }
                     seatRepo.save(seat);
+
+                    // Dong bo vao ho so hoc sinh
+                    if (seat.getStudentCode() != null && !seat.getStudentCode().isBlank()) {
+                        studentRepo.findByStudentCode(seat.getStudentCode()).ifPresent(student -> {
+                            if ("using_phone".equals(status)) {
+                                student.setViolationCount(student.getViolationCount() + 1);
+                            } else if ("raising_hand".equals(status)) {
+                                student.setParticipationCount(student.getParticipationCount() + 1);
+                            }
+                            studentRepo.save(student);
+                        });
+                    }
                 });
             }
         } catch (Exception ignored) {}
