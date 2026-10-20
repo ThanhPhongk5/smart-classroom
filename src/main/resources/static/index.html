@@ -1055,7 +1055,14 @@
             </div>
 
             <div class="ai-viewport-footer">
-              <div class="ai-cam-actions">
+              <div class="ai-cam-actions" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <label style="display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text);">
+                  Chế độ quét:
+                  <select id="camModeSelect" class="select" style="height: 38px; min-width: 230px; font-size: 13px;">
+                    <option value="demo">Demo Webcam (Thử nghiệm 1 người - Ghế B1-D1L)</option>
+                    <option value="classroom">Camera Phòng học (Toàn lớp đa người theo tọa độ)</option>
+                  </select>
+                </label>
                 <button class="button primary" id="btnStartCam">Bật Camera AI</button>
                 <button class="button" id="btnStopCam">Tắt Camera AI</button>
                 <button class="button" id="btnFullscreenCam" type="button">Toàn màn hình</button>

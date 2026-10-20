@@ -364,22 +364,24 @@
 
     $('btnStartCam').onclick = async () => {
       const room = currentRoomCode || 'A101';
+      const isDemo = $('camModeSelect') ? ($('camModeSelect').value === 'demo') : true;
+      const modeLabel = isDemo ? 'Webcam Demo (1 ghế B1-D1L)' : 'Camera phòng học (Toàn lớp)';
       try {
-        showToast(`Đang kích hoạt camera phòng ${room}...`);
+        showToast(`Đang kích hoạt camera phòng ${room} [${modeLabel}]...`);
         if (window.location.protocol === 'http:' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
           fetch('http://localhost:5000/api/webcam/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ room: room, demoMode: true })
+            body: JSON.stringify({ room: room, demoMode: isDemo, demoSeat: 'B1-D1L' })
           }).catch(() => {});
         }
-        await fetchApi('/api/device/camera-command?cmd=start_cam&room=' + encodeURIComponent(room)).catch(() => {});
+        await fetchApi(`/api/device/camera-command?cmd=start_cam&room=${encodeURIComponent(room)}&demoMode=${isDemo}`).catch(() => {});
         await fetchApi('/api/device/camera-command', {
           method: 'POST',
-          body: { active: true, roomCode: room, demoMode: true }
+          body: { active: true, roomCode: room, demoMode: isDemo, demoSeat: 'B1-D1L' }
         }).catch(() => {});
 
-        showToast(`Đã gửi lệnh bật Camera phòng ${room}!`);
+        showToast(`Đã bật Camera phòng ${room} [${modeLabel}]!`);
         updateCameraUi(true, true, { room: room });
         setTimeout(checkCameraStatus, 800);
       } catch (e) {
