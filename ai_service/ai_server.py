@@ -68,7 +68,7 @@ pose_model = YOLO(pose_path) if os.path.exists(pose_path) else None
 
 # Warmup models
 dummy = np.zeros((480, 640, 3), dtype=np.uint8)
-if obj_model: obj_model.predict(dummy, classes=[67], conf=0.35, imgsz=416, verbose=False)
+if obj_model: obj_model.predict(dummy, classes=[67], conf=0.48, imgsz=416, verbose=False)
 if behavior_model: behavior_model.predict(dummy, conf=0.25, imgsz=416, verbose=False)
 if pose_model: pose_model.predict(dummy, conf=0.28, imgsz=416, verbose=False)
 print('[INFO] Tat ca mo hinh AI da san sang!')
@@ -332,16 +332,18 @@ class VideoProcessor:
             detected_phones = []
             boxes_to_draw = []
 
-            # 1. Phat hien dien thoai bang yolo11n (COCO class 67, conf=0.35: chuan xac, loai bo false positive)
+            # 1. Phat hien dien thoai bang yolo11n (COCO class 67)
+            # Nang nguong conf len 0.48 va loc ty le dai/rong (1.25 <= aspect_ratio <= 2.8) de loai bo bao dong gia (hop but, vi tien, vat the nho)
             if obj_model is not None:
-                obj_res = obj_model.predict(frame, classes=[67], conf=0.35, imgsz=416, verbose=False)
+                obj_res = obj_model.predict(frame, classes=[67], conf=0.48, imgsz=416, verbose=False)
                 if len(obj_res) > 0 and obj_res[0].boxes is not None:
                     for b in obj_res[0].boxes:
                         box = b.xyxy[0].cpu().numpy().astype(int)
                         conf = float(b.conf[0].item())
                         bw = box[2] - box[0]
                         bh = box[3] - box[1]
-                        if bw >= 24 and bh >= 24:
+                        aspect_ratio = max(bw, bh) / max(1, min(bw, bh))
+                        if bw >= 28 and bh >= 28 and (1.25 <= aspect_ratio <= 2.8):
                             detected_phones.append((box, conf))
                             has_phone = True
 
@@ -375,9 +377,9 @@ class VideoProcessor:
                             student_has_phone = True
                             break
 
-                    # Neu mo hinh bao cid=3 nhung khong co dien thoai va conf < 0.50 -> coi la hoc bai de tranh bao dong gia
+                    # Neu mo hinh bao cid=3 nhung khong co dien thoai va conf < 0.65 -> coi la hoc bai de tranh bao dong gia
                     if cid == 3:
-                        if student_has_phone or conf >= 0.50:
+                        if student_has_phone or conf >= 0.65:
                             act_id = 3
                         else:
                             act_id = 2  # Viet / Hoc bai
@@ -769,14 +771,15 @@ def process_single_frame(frame, room_code='A101', demo_mode=True, demo_seat='B1-
 
     # 1. Phat hien dien thoai
     if obj_model is not None:
-        obj_res = obj_model.predict(frame, classes=[67], conf=0.35, imgsz=416, verbose=False)
+        obj_res = obj_model.predict(frame, classes=[67], conf=0.48, imgsz=416, verbose=False)
         if len(obj_res) > 0 and obj_res[0].boxes is not None:
             for b in obj_res[0].boxes:
                 box = b.xyxy[0].cpu().numpy().astype(int)
                 conf = float(b.conf[0].item())
                 bw = box[2] - box[0]
                 bh = box[3] - box[1]
-                if bw >= 24 and bh >= 24:
+                aspect_ratio = max(bw, bh) / max(1, min(bw, bh))
+                if bw >= 28 and bh >= 28 and (1.25 <= aspect_ratio <= 2.8):
                     detected_phones.append({'box': [int(box[0]), int(box[1]), int(box[2]), int(box[3])], 'conf': round(conf, 2)})
                     has_phone = True
 
@@ -811,7 +814,7 @@ def process_single_frame(frame, room_code='A101', demo_mode=True, demo_seat='B1-
                     break
 
             if cid == 3:
-                act_id = 3 if (student_has_phone or conf >= 0.50) else 2
+                act_id = 3 if (student_has_phone or conf >= 0.65) else 2
             else:
                 act_id = 3 if student_has_phone else cid
 
