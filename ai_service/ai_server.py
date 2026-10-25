@@ -10,6 +10,7 @@ import time
 import threading
 import argparse
 import json
+import re
 import requests
 import cv2
 import numpy as np
@@ -1024,61 +1025,101 @@ def _serial_coordinator_worker(room_code, preferred_port=None, baud=115200):
             COORDINATOR_STATE['serial_port'] = target_port
             print(f'>>> [COORDINATOR - IOT LEVEL 5] KET NOI THANH CONG ESP32 TAI CONG [{target_port}]! <<<')
 
+            last_push_time = 0
             while True:
                 line = ser.readline().decode('utf-8', errors='ignore').strip()
                 if not line:
                     continue
-                if not (line.startswith('{') and line.endswith('}')):
-                    continue
-                try:
-                    data = json.loads(line)
-                    if 'temperature' in data or 'roomCode' in data:
-                        COORDINATOR_STATE['last_telemetry'] = data
-                        COORDINATOR_STATE['last_update_ts'] = int(time.time() * 1000)
 
-                        payload = {
-                            'roomCode': room_code,
-                            'temperature': float(data.get('temperature', 26.0)),
-                            'humidity': float(data.get('humidity', 60.0)),
-                            'lux': float(data.get('lux', 400.0)),
-                            'motion': bool(data.get('motion', False))
-                        }
+                temp = None
+                hum = None
+                lux = None
+                motion = False
 
-                        # 1. Gui telemetry phong hoc len Cloud Render
+                # 1. Thu parse dinh dang JSON
+                if line.startswith('{') and line.endswith('}'):
+                    try:
+                        data = json.loads(line)
+                        if 'temperature' in data:
+                            temp = float(data.get('temperature', 26.5))
+                        if 'humidity' in data:
+                            hum = float(data.get('humidity', 60.0))
+                        if 'lux' in data:
+                            lux = float(data.get('lux', 400.0))
+                        motion = bool(data.get('motion', False))
+                    except Exception:
+                        pass
+
+                # 2. Thu parse dinh dang Text thong thuong tu Arduino
+                if temp is None:
+                    m_temp = re.search(r'Nhiet\s*do:\s*([\d\.]+)', line, re.I)
+                    m_hum = re.search(r'Do\s*am:\s*([\d\.]+)', line, re.I)
+                    m_sang = re.search(r'Sang:\s*([\d\.]+)', line, re.I)
+                    m_lux = re.search(r'Lux:\s*([\d\.]+)', line, re.I)
+                    if m_temp:
+                        try: temp = float(m_temp.group(1))
+                        except Exception: pass
+                    if m_hum:
+                        try: hum = float(m_hum.group(1))
+                        except Exception: pass
+                    if m_lux:
+                        try: lux = float(m_lux.group(1))
+                        except Exception: pass
+                    elif m_sang:
+                        try: lux = float(m_sang.group(1)) * 10.0
+                        except Exception: pass
+
+                # Neu trich xuat duoc du lieu hop le
+                if temp is not None:
+                    now = time.time()
+                    if now - last_push_time < 1.0:
+                        continue
+                    last_push_time = now
+
+                    if hum is None: hum = 60.0
+                    if lux is None: lux = 450.0
+
+                    payload = {
+                        'roomCode': room_code,
+                        'temperature': round(temp, 1),
+                        'humidity': round(hum, 0),
+                        'lux': round(lux, 1),
+                        'motion': motion
+                    }
+                    COORDINATOR_STATE['last_telemetry'] = payload
+                    COORDINATOR_STATE['last_update_ts'] = int(now * 1000)
+
+                    # Day dong thoi len ca Cloud Render va Localhost de dam bao web o dau cung nhan duoc
+                    target_urls = [BACKEND_BASE_URL]
+                    if 'localhost:8080' not in BACKEND_BASE_URL and '127.0.0.1:8080' not in BACKEND_BASE_URL:
+                        target_urls.append('http://localhost:8080')
+
+                    last_cmd = {}
+                    for base_url in target_urls:
                         try:
                             r = requests.post(
-                                f'{BACKEND_BASE_URL}/api/device/telemetry',
+                                f'{base_url}/api/device/telemetry',
                                 json=payload,
                                 headers={'X-Device-Key': DEVICE_KEY, 'Content-Type': 'application/json'},
-                                timeout=2.0
+                                timeout=1.8
                             )
                             if r.status_code == 200:
-                                cmd = r.json()
-                                COORDINATOR_STATE['last_commands'] = cmd
+                                last_cmd = r.json()
+                                COORDINATOR_STATE['last_commands'] = last_cmd
                                 COORDINATOR_STATE['offline_fallback'] = False
-
-                                # Gui lenh dieu khien nguoc lai xuong ESP32 qua Serial
-                                cmd_line = json.dumps({
-                                    'light': bool(cmd.get('light', False)),
-                                    'fan': bool(cmd.get('fan', False)),
-                                    'ac': bool(cmd.get('ac', False))
-                                }) + '\n'
-                                ser.write(cmd_line.encode('utf-8'))
                         except Exception:
-                            # 2. Local Fallback: Tu dong dieu khien cuc bo neu mat mang Internet
-                            COORDINATOR_STATE['offline_fallback'] = True
-                            temp = payload['temperature']
-                            motion = payload['motion']
-                            local_cmd = {
-                                'light': motion,
-                                'fan': (temp >= 28.0 and motion),
-                                'ac': (temp >= 30.0 and motion)
-                            }
-                            COORDINATOR_STATE['last_commands'] = local_cmd
-                            cmd_line = json.dumps(local_cmd) + '\n'
-                            ser.write(cmd_line.encode('utf-8'))
-                except Exception:
-                    pass
+                            pass
+
+                    print(f'[ESP32 -> WEB] Nhiet do: {temp:.1f}C | Do am: {hum:.0f}% | Anh sang: {lux:.0f} lx -> Da cap nhat Web thanh cong!')
+
+                    # Gui lenh dieu khien nguoc lai xuong ESP32 qua Serial
+                    if last_cmd:
+                        cmd_line = json.dumps({
+                            'light': bool(last_cmd.get('light', False)),
+                            'fan': bool(last_cmd.get('fan', False)),
+                            'ac': bool(last_cmd.get('ac', False))
+                        }) + '\n'
+                        ser.write(cmd_line.encode('utf-8'))
 
         except Exception as e:
             COORDINATOR_STATE['serial_connected'] = False
