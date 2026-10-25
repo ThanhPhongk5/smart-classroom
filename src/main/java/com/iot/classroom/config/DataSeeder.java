@@ -60,16 +60,22 @@ public class DataSeeder implements CommandLineRunner {
             }
         }
 
-        // Chuan hoa ten tat ca phong hoc: bo chu 'ngoai ngu' va 'mo phong'
+        // Chuan hoa ten tat ca phong hoc: bo chu 'ngoai ngu', 'mo phong', 'esp 32 that', 'esp32 thật'
         rooms.findAll().forEach(r -> {
             boolean needUpdate = false;
             String name = r.getName();
             if (name == null) name = "Phòng học " + r.getCode();
-            if (name.toLowerCase().contains("ngoại ngữ") || name.toLowerCase().contains("ngoai ngu") ||
-                name.toLowerCase().contains("mo phong") || name.toLowerCase().contains("mô phỏng")) {
-                name = name.replaceAll("(?i)ngoại ngữ|ngoai ngu|mo phong|mô phỏng", "").replaceAll("\\s+", " ").trim();
-                if (name.isEmpty() || name.equalsIgnoreCase("Phòng học")) {
-                    name = "Phòng học Thông minh " + r.getCode();
+            String lower = name.toLowerCase();
+            if (lower.contains("ngoại ngữ") || lower.contains("ngoai ngu") ||
+                lower.contains("mo phong") || lower.contains("mô phỏng") ||
+                lower.contains("esp") || lower.contains("that") || lower.contains("thật")) {
+                name = name.replaceAll("(?i)\\s*\\(?\\s*esp\\s*32\\s*(thật|that)?\\s*\\)?", "")
+                           .replaceAll("(?i)ngoại ngữ|ngoai ngu|mo phong|mô phỏng", "")
+                           .replaceAll("\\s+", " ").trim();
+                if (name.equalsIgnoreCase("Phong hoc A101") || name.equalsIgnoreCase("Phòng học A101")) {
+                    name = "Phòng học A101";
+                } else if (name.isEmpty() || name.equalsIgnoreCase("Phòng học") || name.equalsIgnoreCase("Phong hoc")) {
+                    name = "Phòng học " + r.getCode();
                 }
                 r.setName(name);
                 needUpdate = true;

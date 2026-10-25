@@ -158,6 +158,24 @@ public class RoomController {
         return ResponseEntity.ok(Map.of("status", "success", "message", "Đã xóa phòng học " + r.getCode()));
     }
 
+    public record RoomUpdateReq(String name, Integer capacity) {}
+
+    @PutMapping("/rooms/{id}")
+    public ResponseEntity<?> updateRoom(@PathVariable Long id, @RequestBody RoomUpdateReq req, Authentication auth) {
+        Room r = rooms.findById(id).orElse(null);
+        if (r == null) return ResponseEntity.notFound().build();
+        if (req.name() != null && !req.name().trim().isEmpty()) {
+            r.setName(req.name().trim());
+        }
+        if (req.capacity() != null && req.capacity() > 0) {
+            r.setCapacity(req.capacity());
+        }
+        rooms.save(r);
+        String actor = auth != null ? auth.getName() : "ADMIN";
+        logs.save(new ActionLog(id, "Cập nhật thông tin phòng học " + r.getCode() + ": " + r.getName(), actor));
+        return ResponseEntity.ok(Map.of("status", "success", "room", r));
+    }
+
     @GetMapping("/rooms/{id}/status")
     public Map<String, Object> status(@PathVariable Long id) {
         DeviceState s = states.findById(id).orElse(new DeviceState(id));

@@ -832,11 +832,12 @@
 
         let html = '';
         rooms.forEach(r => {
+          const roomName = cleanRoomName(r.name);
           html += `
             <tr>
               <td>#${r.id}</td>
               <td><b>${r.code}</b></td>
-              <td>${r.name}</td>
+              <td>${roomName}</td>
               <td><b>${r.capacity} chỗ</b></td>
               <td>
                 <div style="display: flex; gap: 6px;">
@@ -950,10 +951,21 @@
       }
     }
 
+    function cleanRoomName(name) {
+      if (!name) return '';
+      return name.replace(/\s*\(\s*esp\s*32\s*(thật|that)?\s*\)/gi, '')
+                 .replace(/\s*\(?\s*esp\s*32\s*(thật|that)?\s*\)?/gi, '')
+                 .trim();
+    }
+
     // ================= INITIALIZATION =================
     async function initRooms() {
       const rooms = await fetchApi('/api/rooms');
       if (!rooms || rooms.length === 0) return;
+
+      rooms.forEach(r => {
+        if (r.name) r.name = cleanRoomName(r.name);
+      });
 
       $('roomSelect').innerHTML = rooms.map(r => `<option value="${r.id}" data-code="${r.code}">${r.name}</option>`).join('');
       currentRoomId = rooms[0].id;
@@ -1050,6 +1062,9 @@
         if (allRoomsCache.length === 0) {
           try {
             allRoomsCache = await fetchApi('/api/rooms') || [];
+            allRoomsCache.forEach(r => {
+              if (r.name) r.name = cleanRoomName(r.name);
+            });
           } catch (_) {}
         }
 
@@ -1202,7 +1217,7 @@
           rooms.forEach(r => {
             const opt = document.createElement('option');
             opt.value = r.id;
-            opt.textContent = `${r.code} - ${r.name}`;
+            opt.textContent = `${r.code} - ${cleanRoomName(r.name)}`;
             if (s.roomId === r.id || (!s.roomId && r.id === currentRoomId)) {
               opt.selected = true;
             }

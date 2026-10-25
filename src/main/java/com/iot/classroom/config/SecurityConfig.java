@@ -20,6 +20,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/device/**", "/login.html", "/css/**", "/js/**", "/images/**", "/favicon.ico").permitAll()
                 .requestMatchers("/api/users/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/rooms").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.PUT, "/api/rooms/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/rooms/*/layout").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/rooms/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/api/schedules/**").hasRole("ADMIN")
