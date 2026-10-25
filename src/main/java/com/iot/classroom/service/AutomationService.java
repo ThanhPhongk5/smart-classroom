@@ -68,17 +68,22 @@ public class AutomationService {
         DeviceState s = states.findById(roomId).orElse(null);
         if (s == null || !s.isAuto()) return;
         SensorReading r = readings.findFirstByRoomIdOrderByCreatedAtDesc(roomId).orElse(null);
-        boolean inClass = currentClass(roomId).isPresent();
-        boolean present = s.getLastMotionAt() != null && s.getLastMotionAt().isAfter(LocalDateTime.now().minusMinutes(10));
-        boolean light = false, fan = false, ac = false;
-        if (inClass || present) {
-            double t = r != null ? r.getTemperature() : 25;
-            double lx = r != null ? r.getLux() : 500;
-            light = lx < 300;
-            ac = t >= 30 || (s.isAc() && t >= 28);
-            fan = t >= 27 && !ac;
-        }
-        String why = inClass ? "Đang có tiết học" : present ? "Phát hiện có người" : "Phòng trống >10 phút";
+
+        // Doc du lieu moi truong thuc te tu cam bien ESP32 (DHT11 va Quang tro LDR)
+        double t = r != null ? r.getTemperature() : 26.5;
+        double lx = r != null ? r.getLux() : 500.0;
+
+        // 1. Tu dong bat Den neu anh sang yeu / phong toi (< 300 lux)
+        boolean light = lx < 300.0;
+
+        // 2. Tu dong dieu khien lam mat (Dieu hoa & Quat thong gio) theo nhiet do phong:
+        // - Khi rat nong (>= 30°C hoac dang chay va >= 28°C): Bat Dieu hoa, tat Quat
+        // - Khi nong vua (27°C - 30°C): Bat Quat thong gio, tat Dieu hoa
+        // - Khi mat me (< 27°C): Tat ca hai de tiet kiem dien
+        boolean ac = t >= 30.0 || (s.isAc() && t >= 28.0);
+        boolean fan = t >= 27.0 && !ac;
+
+        String why = String.format("Tự động theo cảm biến: Nhiệt độ %.1f°C, Ánh sáng %.0f lux", t, lx);
         change(s, "Đèn", s.isLight(), light, why);
         change(s, "Quạt", s.isFan(), fan, why);
         change(s, "Điều hòa", s.isAc(), ac, why);

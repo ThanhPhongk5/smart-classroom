@@ -104,7 +104,7 @@
           $('valTemp').textContent = data.sensor.temperature != null ? data.sensor.temperature.toFixed(1) : '--';
           $('valHum').textContent = data.sensor.humidity != null ? data.sensor.humidity.toFixed(0) : '--';
           $('valLux').textContent = data.sensor.lux != null ? data.sensor.lux.toFixed(0) : '--';
-          $('valMotion').textContent = data.sensor.motion ? 'Có người' : 'Phòng trống';
+          if ($('valMotion')) $('valMotion').textContent = data.sensor.motion ? 'Có người' : 'Phòng trống';
           $('sensorUpdatedTime').textContent = 'Cập nhật lúc: ' + new Date(data.sensor.createdAt).toLocaleTimeString('vi-VN');
         }
 

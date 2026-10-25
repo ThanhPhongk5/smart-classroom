@@ -460,6 +460,10 @@ public class RoomController {
         states.save(s);
         String actor = a != null ? a.getName() : "USER";
         if (msg.length() > 0) logs.save(new ActionLog(id, msg.toString().trim(), actor));
+        if (s.isAuto()) {
+            automation.apply(id);
+            s = states.findById(id).orElse(s);
+        }
         return ResponseEntity.ok(s);
     }
 
