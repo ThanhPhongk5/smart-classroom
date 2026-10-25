@@ -446,17 +446,47 @@ public class RoomController {
         return behaviorRepo.findByRoomIdAndCreatedAtAfterOrderByCreatedAtAsc(id, LocalDateTime.now().minusHours(hours));
     }
 
-    public record Control(Boolean light, Boolean fan, Boolean ac, Integer acTemp, Boolean auto) {}
+    public record Control(
+        Boolean light,
+        Boolean fan,
+        Boolean ac,
+        Integer acTemp,
+        Boolean auto,
+        String device,
+        Boolean state
+    ) {}
 
     @PostMapping("/rooms/{id}/control")
     public ResponseEntity<DeviceState> control(@PathVariable Long id, @RequestBody Control c, Authentication a) {
         DeviceState s = states.findById(id).orElse(new DeviceState(id));
         StringBuilder msg = new StringBuilder();
-        if (c.auto() != null && c.auto() != s.isAuto()) { s.setAuto(c.auto()); msg.append("Chế độ tự động ").append(c.auto() ? "BẬT; " : "TẮT; "); }
-        if (c.light() != null && c.light() != s.isLight()) { s.setLight(c.light()); msg.append("Đèn ").append(c.light() ? "BẬT; " : "TẮT; "); }
-        if (c.fan() != null && c.fan() != s.isFan()) { s.setFan(c.fan()); msg.append("Quạt ").append(c.fan() ? "BẬT; " : "TẮT; "); }
-        if (c.ac() != null && c.ac() != s.isAc()) { s.setAc(c.ac()); msg.append("Điều hòa ").append(c.ac() ? "BẬT; " : "TẮT; "); }
-        if (c.acTemp() != null && c.acTemp() >= 16 && c.acTemp() <= 30 && c.acTemp() != s.getAcTemp()) { s.setAcTemp(c.acTemp()); msg.append("Đặt điều hòa ").append(c.acTemp()).append("°C; "); }
+
+        Boolean autoVal = c.auto() != null ? c.auto() : ("auto".equalsIgnoreCase(c.device()) ? c.state() : null);
+        Boolean lightVal = c.light() != null ? c.light() : ("light".equalsIgnoreCase(c.device()) ? c.state() : null);
+        Boolean fanVal = c.fan() != null ? c.fan() : ("fan".equalsIgnoreCase(c.device()) ? c.state() : null);
+        Boolean acVal = c.ac() != null ? c.ac() : ("ac".equalsIgnoreCase(c.device()) ? c.state() : null);
+
+        if (autoVal != null && autoVal != s.isAuto()) {
+            s.setAuto(autoVal);
+            msg.append("Chế độ tự động ").append(autoVal ? "BẬT; " : "TẮT; ");
+        }
+        if (lightVal != null && lightVal != s.isLight()) {
+            s.setLight(lightVal);
+            msg.append("Đèn ").append(lightVal ? "BẬT; " : "TẮT; ");
+        }
+        if (fanVal != null && fanVal != s.isFan()) {
+            s.setFan(fanVal);
+            msg.append("Quạt ").append(fanVal ? "BẬT; " : "TẮT; ");
+        }
+        if (acVal != null && acVal != s.isAc()) {
+            s.setAc(acVal);
+            msg.append("Điều hòa ").append(acVal ? "BẬT; " : "TẮT; ");
+        }
+        if (c.acTemp() != null && c.acTemp() >= 16 && c.acTemp() <= 30 && c.acTemp() != s.getAcTemp()) {
+            s.setAcTemp(c.acTemp());
+            msg.append("Đặt điều hòa ").append(c.acTemp()).append("°C; ");
+        }
+
         states.save(s);
         String actor = a != null ? a.getName() : "USER";
         if (msg.length() > 0) logs.save(new ActionLog(id, msg.toString().trim(), actor));

@@ -20,6 +20,9 @@ const char* roomCode  = "A101";
 #define DHT_PIN    4
 #define DHT_TYPE   DHT11
 #define LDR_PIN    34
+#define LED_PIN    2   // Den LED tren ESP32 (GPIO 2 la den LED xanh tich hop hoac noi ra LED ngoai)
+
+bool currentLight = false;
 
 // ---- 4. OLED SSD1306 (128x64 I2C: SDA=21, SCL=22) ----
 #define SCREEN_WIDTH  128
@@ -80,6 +83,14 @@ void sendDataToWeb(float temp, float hum, float lux) {
     int httpCode = http.POST(jsonPayload);
     if (httpCode == 200) {
       webStatus = "Web: OK";
+      String resp = http.getString();
+      if (resp.indexOf("\"light\":true") >= 0) {
+        currentLight = true;
+        digitalWrite(LED_PIN, HIGH);
+      } else if (resp.indexOf("\"light\":false") >= 0) {
+        currentLight = false;
+        digitalWrite(LED_PIN, LOW);
+      }
       Serial.println("[WEB SYNC] Da gui thanh cong len Web Dashboard 200 OK!");
     } else {
       webStatus = "Web:" + String(httpCode);
@@ -93,6 +104,9 @@ void sendDataToWeb(float temp, float hum, float lux) {
 
 void setup() {
   Serial.begin(115200);
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
 
   Wire.begin(21, 22); // SDA=GPIO 21, SCL=GPIO 22
 
@@ -158,11 +172,24 @@ void loop() {
   display.drawRect(0, 52, 60, 11, SSD1306_WHITE);
   display.fillRect(2, 54, map(lightPercent, 0, 100, 0, 56), 7, SSD1306_WHITE);
 
-  // Hien thi trang thai dong bo Web o nua phai
-  display.setCursor(68, 54);
-  display.print(webStatus);
+  // Hien thi trang thai Den va dong bo Web o nua phai
+  display.setCursor(64, 54);
+  display.printf("%s %s", currentLight ? "D:ON" : "D:--", webStatus.c_str());
 
   display.display();
+
+  // Doc lenh dieu khien tu Web gui xuong qua Serial (tu Python coordinator ai_server.py)
+  if (Serial.available() > 0) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+    if (cmd.indexOf("\"light\":true") >= 0) {
+      currentLight = true;
+      digitalWrite(LED_PIN, HIGH);
+    } else if (cmd.indexOf("\"light\":false") >= 0) {
+      currentLight = false;
+      digitalWrite(LED_PIN, LOW);
+    }
+  }
 
   // In ra Serial dinh dang JSON moi 1 giay (tranh lam tran bo dem UART tren PC gay tre du lieu)
   if (millis() - lastSerialTime >= 1000) {

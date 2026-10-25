@@ -73,8 +73,8 @@ public class AutomationService {
         double t = r != null ? r.getTemperature() : 26.5;
         double lx = r != null ? r.getLux() : 500.0;
 
-        // 1. Tu dong bat Den neu anh sang yeu / phong toi (< 300 lux)
-        boolean light = lx < 300.0;
+        // 1. Tu dong bat Den neu anh sang duoi tieu chuan phong hoc (< 500 lux)
+        boolean light = lx < 500.0;
 
         // 2. Tu dong dieu khien lam mat (Dieu hoa & Quat thong gio) theo nhiet do phong:
         // - Khi rat nong (>= 30°C hoac dang chay va >= 28°C): Bat Dieu hoa, tat Quat

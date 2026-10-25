@@ -128,6 +128,7 @@
     async function sendControl(device, state, acTemp = null) {
       if (!currentRoomId) return;
       const body = { device, state };
+      if (device) body[device] = state;
       if (acTemp !== null) body.acTemp = acTemp;
       try {
         await fetchApi('/api/rooms/' + currentRoomId + '/control', {
