@@ -1,254 +1,173 @@
-/*
- * ==============================================================================
- * HE THONG PHONG HOC THONG MINH SMARTCLASS - IOT CAP DO 5 (IOT LEVEL 5)
- * Nut Dau Cuoi: ESP32 Cam Bien, Man Hinh & Thiet Bi Chap Hanh (End Node)
- * Ket noi: Cap USB Serial truc tiep voi May tinh / Node Dieu Phoi (ai_server.py)
- * Tich hop Web: So lieu tu dong day len Web Dashboard (Spring Boot & Cloud)
- * ==============================================================================
- * 
- * THU VIEN CAN CAI TREN ARDUINO IDE (Tools -> Manage Libraries...):
- *   1. "ArduinoJson" (Boi Benoit Blanchon - Chon v6 hoac v7)
- *   2. "DHT sensor library" (Boi Adafruit)
- *   3. "Adafruit Unified Sensor" (Boi Adafruit)
- *   4. Neu dung LCD 1602 I2C: Cai them "LiquidCrystal I2C" (Boi Frank de Brabander)
- *   5. Neu dung OLED 0.96 inch: Cai them "Adafruit SSD1306" va "Adafruit GFX Library"
- * 
- * SO DO NOI DAY (PINOUT TRUONG DU AN):
- *   - DHT11 / DHT22 (Nhiet do, Do am):   Pin GPIO 4  (VCC -> 3V3/5V, GND -> GND)
- *   - LDR Quang tro (Cam bien anh sang): Pin GPIO 34 (Chan tin hieu Analog)
- *   - PIR HC-SR501 (Cam bien chuyen dong): Pin GPIO 27 (Neu co, hoac de trong)
- *   - Relay / LED Den (Light):           Pin GPIO 25 (Active-LOW: LOW=BAT, HIGH=TAT)
- *   - Relay / LED Quat (Fan):            Pin GPIO 26
- *   - Relay / LED Dieu hoa (AC):         Pin GPIO 33
- *   - Man hinh I2C (LCD 1602 hoac OLED):
- *       + SDA -> Pin GPIO 21
- *       + SCL -> Pin GPIO 22
- *       + VCC -> 5V (hoac 3V3), GND -> GND
- * ==============================================================================
- */
-
-#include <ArduinoJson.h>
-#include <DHT.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <DHT.h>
 
-// ====== 1. CAU HINH LOAI CAM BIEN NHIET DO ======
-// Neu cam bien mau XANH DUONG: de DHT11
-// Neu cam bien mau TRANG: sua thanh DHT22
-#define DHTTYPE DHT11
-// #define DHTTYPE DHT22
+// ---- 1. CAU HINH WIFI (Thay bang ten va mat khau WiFi nha / phong cua ban) ----
+const char* ssid     = "TEN_WIFI";
+const char* password = "MAT_KHAU_WIFI";
 
-#define PIN_DHT    4
-#define PIN_LDR    34
-#define PIN_PIR    27
-#define PIN_LIGHT  25
-#define PIN_FAN    26
-#define PIN_AC     33
+// ---- 2. CAU HINH SERVER WEB DASHBOARD ----
+// Server Cloud Render dang hoat dong cua he thong:
+const char* serverUrl = "https://smart-classroom-pyvl.onrender.com/api/device/telemetry";
+const char* deviceKey = "esp32-secret-2026";
+const char* roomCode  = "A101";
 
-#define RELAY_ON   LOW
-#define RELAY_OFF  HIGH
+// ---- 3. CAU HINH CHAN PHAN CUNG ----
+#define DHT_PIN    4
+#define DHT_TYPE   DHT11
+#define LDR_PIN    34
 
-// ====== 2. CAU HINH MAN HINH (Chon 1 trong 2 loai man hinh ben duoi) ======
-// Bat che do LCD 1602 I2C (Man hinh 16 ky tu x 2 dong kem module I2C 4 chan):
-#define ENABLE_LCD_1602
-#ifdef ENABLE_LCD_1602
-  #include <LiquidCrystal_I2C.h>
-  LiquidCrystal_I2C lcd(0x27, 16, 2); // Neu khong len chu thi thu dia chi 0x3F
-#endif
+// ---- 4. OLED SSD1306 (128x64 I2C: SDA=21, SCL=22) ----
+#define SCREEN_WIDTH  128
+#define SCREEN_HEIGHT 64
+#define OLED_ADDR     0x3C
 
-// Hoac neu dung man hinh OLED 0.96 inch (128x64 I2C), hay bo comment 2 dong duoi va tat LCD:
-// #define ENABLE_OLED_SSD1306
-#ifdef ENABLE_OLED_SSD1306
-  #include <Adafruit_GFX.h>
-  #include <Adafruit_SSD1306.h>
-  Adafruit_SSD1306 display(128, 64, &Wire, -1);
-#endif
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+DHT dht(DHT_PIN, DHT_TYPE);
 
-// ====== 3. CAU HINH PHONG HOC ======
-const char* ROOM_CODE = "A101";
-const unsigned long SEND_INTERVAL = 2500; // Gui du lieu len Web moi 2.5 giay
+int batteryLevel = 85;
+unsigned long lastSendTime = 0;
+String webStatus = "Cho dong bo...";
 
-DHT dht(PIN_DHT, DHTTYPE);
-unsigned long lastSend = 0;
-unsigned long lastDisplayUpdate = 0;
-bool motionLatch = false;
-
-// Trang thai thiet bi hien tai
-bool stateLight = false;
-bool stateFan   = false;
-bool stateAc    = false;
-
-float currentTemp = 26.5;
-float currentHum  = 60.0;
-float currentLux  = 450.0;
-
-void setRelay(int pin, bool on) {
-  digitalWrite(pin, on ? RELAY_ON : RELAY_OFF);
+// Ve bieu tuong song WiFi: 4 vach theo cuong do tin hieu
+void drawWifi(int x, int y) {
+  int bars = 0;
+  if (WiFi.status() == WL_CONNECTED) {
+    int rssi = WiFi.RSSI();
+    if (rssi > -55)      bars = 4;
+    else if (rssi > -65) bars = 3;
+    else if (rssi > -75) bars = 2;
+    else                 bars = 1;
+  }
+  for (int i = 0; i < 4; i++) {
+    int h = 2 + i * 2;
+    if (i < bars) display.fillRect(x + i * 4, y + 8 - h, 3, h, SSD1306_WHITE);
+    else          display.drawRect(x + i * 4, y + 8 - h, 3, h, SSD1306_WHITE);
+  }
 }
 
-float readLux() {
-  int raw = analogRead(PIN_LDR); // 0..4095
-  // Chuyen doi ADC 12-bit sang dai do lux 0..1000
-  float lux = (raw / 4095.0f) * 1000.0f;
-  return round(lux * 10.0) / 10.0;
+// Ve bieu tuong pin
+void drawBattery(int x, int y, int level) {
+  display.drawRect(x, y, 16, 8, SSD1306_WHITE);
+  display.fillRect(x + 16, y + 2, 2, 4, SSD1306_WHITE);
+  display.fillRect(x + 2, y + 2, map(level, 0, 100, 0, 12), 4, SSD1306_WHITE);
 }
 
-// Cap nhat thong so len man hinh LCD / OLED
-void updateScreen() {
-#ifdef ENABLE_LCD_1602
-  lcd.setCursor(0, 0);
-  lcd.print(ROOM_CODE);
-  lcd.print(":");
-  lcd.print(currentTemp, 1);
-  lcd.print((char)223); // Ky tu do C
-  lcd.print("C ");
-  lcd.print(currentHum, 0);
-  lcd.print("%  ");
+// Gui du lieu nhiet do, anh sang truc tiep len Web Dashboard qua WiFi
+void sendDataToWeb(float temp, float hum, float lux) {
+  if (WiFi.status() == WL_CONNECTED) {
+    HTTPClient http;
+    http.begin(serverUrl);
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-Device-Key", deviceKey);
 
-  lcd.setCursor(0, 1);
-  lcd.print("L:");
-  lcd.print((int)currentLux);
-  lcd.print("lx D:");
-  lcd.print(stateLight ? "ON " : "OFF");
-  lcd.print("Q:");
-  lcd.print(stateFan ? "ON" : "--");
-#endif
+    // Dong goi goi tin JSON theo dung chuan Web can
+    String jsonPayload = "{\"roomCode\":\"" + String(roomCode) + "\","
+                         "\"temperature\":" + String(temp, 1) + ","
+                         "\"humidity\":" + String(hum, 0) + ","
+                         "\"lux\":" + String(lux, 1) + ","
+                         "\"motion\":false}";
 
-#ifdef ENABLE_OLED_SSD1306
-  display.clearDisplay();
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-  display.print("SMART CLASSROOM ");
-  display.println(ROOM_CODE);
-  display.println("---------------------");
-  display.print("Nhiet do: "); display.print(currentTemp, 1); display.println(" C");
-  display.print("Do am:    "); display.print(currentHum, 0); display.println(" %");
-  display.print("Anh sang: "); display.print((int)currentLux); display.println(" lux");
-  display.print("Den: "); display.print(stateLight ? "ON " : "OFF ");
-  display.print("| Quat: "); display.println(stateFan ? "ON" : "OFF");
-  display.display();
-#endif
+    int httpCode = http.POST(jsonPayload);
+    if (httpCode == 200) {
+      webStatus = "Web: OK 200";
+      Serial.println("[WEB SYNC] Da gui thanh cong len Web Dashboard!");
+    } else {
+      webStatus = "Web: " + String(httpCode);
+      Serial.printf("[WEB SYNC] Loi ket noi Web: %d\n", httpCode);
+    }
+    http.end();
+  } else {
+    webStatus = "Mat WiFi";
+  }
 }
 
 void setup() {
   Serial.begin(115200);
 
-  // Khoi tao I2C (SDA=21, SCL=22)
-  Wire.begin(21, 22);
+  Wire.begin(21, 22); // SDA=GPIO 21, SCL=GPIO 22
 
-#ifdef ENABLE_LCD_1602
-  lcd.init();
-  lcd.backlight();
-  lcd.setCursor(0, 0);
-  lcd.print("SMART CLASSROOM");
-  lcd.setCursor(0, 1);
-  lcd.print("Connecting PC...");
-#endif
-
-#ifdef ENABLE_OLED_SSD1306
-  if (display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    display.clearDisplay();
-    display.setTextSize(1);
-    display.setTextColor(SSD1306_WHITE);
-    display.setCursor(10, 20);
-    display.println("SMART CLASSROOM");
-    display.setCursor(10, 36);
-    display.println("Connecting PC...");
-    display.display();
-  }
-#endif
-
-  pinMode(PIN_PIR, INPUT);
-  for (int p : {PIN_LIGHT, PIN_FAN, PIN_AC}) {
-    pinMode(p, OUTPUT);
-    setRelay(p, false);
+  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
+    Serial.println("Khong tim thay OLED! Kiem tra day SDA/SCL.");
+    while (true) delay(10);
   }
 
   dht.begin();
-  delay(1200);
+  analogReadResolution(12); // 0 - 4095
 
-  // Gui thong bao san sang ve may tinh qua Serial
-  Serial.println("{\"status\":\"ESP32_READY\",\"roomCode\":\"A101\",\"mode\":\"IOT_LEVEL_5_SERIAL\"}");
-}
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
 
-// Xu ly lenh Bật / Tắt thiết bị nhận từ Web gửi xuống qua Serial
-void processIncomingCommand(const String& jsonStr) {
-  StaticJsonDocument<256> doc;
-  DeserializationError err = deserializeJson(doc, jsonStr);
-  if (err) return;
-
-  bool changed = false;
-  if (doc.containsKey("light")) {
-    stateLight = doc["light"];
-    setRelay(PIN_LIGHT, stateLight);
-    changed = true;
-  }
-  if (doc.containsKey("fan")) {
-    stateFan = doc["fan"];
-    setRelay(PIN_FAN, stateFan);
-    changed = true;
-  }
-  if (doc.containsKey("ac")) {
-    stateAc = doc["ac"];
-    setRelay(PIN_AC, stateAc);
-    changed = true;
-  }
-
-  if (changed) {
-    updateScreen();
-  }
-}
-
-// Gui du lieu cam bien ve may tinh qua Serial de day len Web
-void sendTelemetryToCoordinator() {
-  float t = dht.readTemperature();
-  float h = dht.readHumidity();
-
-  if (!isnan(t)) currentTemp = round(t * 10.0) / 10.0;
-  if (!isnan(h)) currentHum  = round(h * 10.0) / 10.0;
-  currentLux = readLux();
-
-  StaticJsonDocument<256> doc;
-  doc["roomCode"] = ROOM_CODE;
-  doc["temperature"] = currentTemp;
-  doc["humidity"] = currentHum;
-  doc["lux"] = currentLux;
-  doc["motion"] = motionLatch;
-  doc["lightState"] = stateLight;
-  doc["fanState"]   = stateFan;
-  doc["acState"]    = stateAc;
-
-  // Reset bien nho chuyen dong
-  motionLatch = false;
-
-  // In dong goi JSON tren 1 dong ve cong Serial
-  serializeJson(doc, Serial);
-  Serial.println();
-
-  // Cap nhat hien thi len man hinh LED / LCD
-  updateScreen();
+  display.clearDisplay();
+  display.setTextColor(SSD1306_WHITE);
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("ESP32 SMARTCLASS");
+  display.setCursor(0, 16);
+  display.println("Dang ket noi WiFi...");
+  display.display();
+  delay(1500);
 }
 
 void loop() {
-  // 1. Doc cam bien chuyen dong PIR (neu co)
-  if (digitalRead(PIN_PIR) == HIGH) {
-    motionLatch = true;
+  float temp = dht.readTemperature();
+  float hum  = dht.readHumidity();
+  int ldrRaw = analogRead(LDR_PIN);
+
+  // Chuyen doi ADC sang phan tram va uoc tinh Lux (0..1000 lux)
+  int lightPercent = map(ldrRaw, 0, 4095, 100, 0);
+  float luxApprox = (float)lightPercent * 10.0;
+
+  display.clearDisplay();
+  display.setTextSize(1);
+
+  // Dong tieu de + bieu tuong Wifi, Pin
+  display.setCursor(0, 0);
+  display.print("A101");
+  display.setCursor(32, 0);
+  display.print(WiFi.status() == WL_CONNECTED ? "ONLINE" : "NO WIFI");
+  drawWifi(88, 0);
+  drawBattery(108, 0, batteryLevel);
+
+  // Nhiet do, do am
+  if (isnan(temp) || isnan(hum)) {
+    display.setCursor(0, 16);
+    display.print("DHT11: loi doc!");
+  } else {
+    display.setCursor(0, 16);
+    display.printf("Nhiet do: %.1f C", temp);
+
+    display.setCursor(0, 28);
+    display.printf("Do am   : %.0f %%", hum);
   }
 
-  // 2. Lang nghe lenh dieu khien tu Web gui xuong qua Serial
-  if (Serial.available() > 0) {
-    String line = Serial.readStringUntil('\n');
-    line.trim();
-    if (line.startsWith("{") && line.endsWith("}")) {
-      processIncomingCommand(line);
+  // Anh sang
+  display.setCursor(0, 40);
+  display.printf("Anh sang: %d%% (%dlx)", lightPercent, (int)luxApprox);
+
+  // Thanh hien thi muc sang
+  display.drawRect(0, 52, 128, 11, SSD1306_WHITE);
+  display.fillRect(2, 54, map(lightPercent, 0, 100, 0, 124), 7, SSD1306_WHITE);
+
+  display.display();
+
+  // In ra Serial dinh dang JSON (ho tro dong thoi neu cam cap USB vao may tinh)
+  Serial.printf("{\"roomCode\":\"%s\",\"temperature\":%.1f,\"humidity\":%.0f,\"lux\":%.1f,\"motion\":false}\n",
+                roomCode,
+                isnan(temp) ? 26.5 : temp,
+                isnan(hum) ? 60.0 : hum,
+                luxApprox);
+
+  // Dinh ky moi 3 giay gui du lieu len Web Dashboard
+  if (millis() - lastSendTime >= 3000) {
+    lastSendTime = millis();
+    if (!isnan(temp) && !isnan(hum)) {
+      sendDataToWeb(temp, hum, luxApprox);
     }
   }
 
-  // 3. Dinh ky gui telemetry len Web va cap nhat man hinh
-  if (millis() - lastSend >= SEND_INTERVAL) {
-    lastSend = millis();
-    sendTelemetryToCoordinator();
-  }
-
-  delay(20);
+  delay(100);
 }
