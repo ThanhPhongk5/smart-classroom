@@ -109,16 +109,17 @@
         }
 
         // Device switches
-        if (data.device) {
-          $('swLight').checked = !!data.device.light;
-          $('swFan').checked = !!data.device.fan;
-          $('swAc').checked = !!data.device.ac;
-          $('swAuto').checked = !!data.device.auto;
-          $('acTempText').textContent = data.device.acTemp || 25;
+        const dev = data.device || data.state;
+        if (dev) {
+          $('swLight').checked = !!dev.light;
+          $('swFan').checked = !!dev.fan;
+          $('swAc').checked = !!dev.ac;
+          $('swAuto').checked = !!dev.auto;
+          $('acTempText').textContent = dev.acTemp || 25;
 
-          data.device.light ? $('devLightCard').classList.add('active') : $('devLightCard').classList.remove('active');
-          data.device.fan ? $('devFanCard').classList.add('active') : $('devFanCard').classList.remove('active');
-          data.device.ac ? $('devAcCard').classList.add('active') : $('devAcCard').classList.remove('active');
+          dev.light ? $('devLightCard').classList.add('active') : $('devLightCard').classList.remove('active');
+          dev.fan ? $('devFanCard').classList.add('active') : $('devFanCard').classList.remove('active');
+          dev.ac ? $('devAcCard').classList.add('active') : $('devAcCard').classList.remove('active');
         }
       } catch (e) {
         console.error('Error loading env status:', e);

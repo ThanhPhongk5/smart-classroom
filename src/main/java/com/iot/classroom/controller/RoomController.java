@@ -164,6 +164,7 @@ public class RoomController {
         SensorReading r = readings.findFirstByRoomIdOrderByCreatedAtDesc(id).orElse(null);
         Map<String, Object> out = new HashMap<>();
         out.put("state", s);
+        out.put("device", s);
         out.put("sensor", r);
         out.put("alerts", automation.getAlerts(id));
         return out;
