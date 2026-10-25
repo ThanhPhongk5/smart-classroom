@@ -1027,7 +1027,25 @@ def _serial_coordinator_worker(room_code, preferred_port=None, baud=115200):
 
             last_push_time = 0
             while True:
-                line = ser.readline().decode('utf-8', errors='ignore').strip()
+                # Neu bo dem Serial bi ton dong (do mang Render cham hoac ESP32 gui qua nhanh),
+                # doc xả toan bo de lay ngay dong moi nhat, khong bi tre du lieu cu!
+                if ser.in_waiting > 120:
+                    raw_chunk = ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
+                    raw_lines = [l.strip() for l in raw_chunk.splitlines() if l.strip()]
+                    valid_line = None
+                    for candidate in reversed(raw_lines):
+                        if (candidate.startswith('{') and candidate.endswith('}')) or 'Nhiet do:' in candidate or 'Sang:' in candidate:
+                            valid_line = candidate
+                            break
+                    if valid_line:
+                        line = valid_line
+                    elif raw_lines:
+                        line = raw_lines[-1]
+                    else:
+                        continue
+                else:
+                    line = ser.readline().decode('utf-8', errors='ignore').strip()
+
                 if not line:
                     continue
 
@@ -1122,9 +1140,10 @@ def _serial_coordinator_worker(room_code, preferred_port=None, baud=115200):
                         ser.write(cmd_line.encode('utf-8'))
 
         except Exception as e:
+            print(f"[COORDINATOR] Cong [{target_port}] dang bi khoa (PermissionError). Vui long DONG Serial Monitor tren Arduino IDE: {e}")
             COORDINATOR_STATE['serial_connected'] = False
             COORDINATOR_STATE['serial_port'] = None
-            time.sleep(2.0)
+            time.sleep(3.0)
 
 def _cloud_listener():
     """Lang nghe lenh Bat/Tat Webcam truc tiep tu Web Dashboard va gui Heartbeat theo phong"""

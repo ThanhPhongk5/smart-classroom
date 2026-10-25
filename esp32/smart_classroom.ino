@@ -31,6 +31,7 @@ DHT dht(DHT_PIN, DHT_TYPE);
 
 int batteryLevel = 85;
 unsigned long lastSendTime = 0;
+unsigned long lastSerialTime = 0;
 String webStatus = "Cho dong bo...";
 
 // Ve bieu tuong song WiFi: 4 vach theo cuong do tin hieu
@@ -163,12 +164,15 @@ void loop() {
 
   display.display();
 
-  // In ra Serial dinh dang JSON (ho tro dong thoi neu cam cap USB vao may tinh)
-  Serial.printf("{\"roomCode\":\"%s\",\"temperature\":%.1f,\"humidity\":%.0f,\"lux\":%.1f,\"motion\":false}\n",
-                roomCode,
-                isnan(temp) ? 26.5 : temp,
-                isnan(hum) ? 60.0 : hum,
-                luxApprox);
+  // In ra Serial dinh dang JSON moi 1 giay (tranh lam tran bo dem UART tren PC gay tre du lieu)
+  if (millis() - lastSerialTime >= 1000) {
+    lastSerialTime = millis();
+    Serial.printf("{\"roomCode\":\"%s\",\"temperature\":%.1f,\"humidity\":%.0f,\"lux\":%.1f,\"motion\":false}\n",
+                  roomCode,
+                  isnan(temp) ? 26.5 : temp,
+                  isnan(hum) ? 60.0 : hum,
+                  luxApprox);
+  }
 
   // Dinh ky moi 3 giay gui du lieu len Web Dashboard
   if (millis() - lastSendTime >= 3000) {
