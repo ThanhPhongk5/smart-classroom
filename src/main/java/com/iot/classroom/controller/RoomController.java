@@ -427,7 +427,7 @@ public class RoomController {
         return ResponseEntity.ok(Map.of("status", "success", "imported", updated));
     }
 
-    @GetMapping("/rooms/{id}/history")
+    @GetMapping({"/rooms/{id}/history", "/rooms/{id}/sensors/history"})
     public List<SensorReading> history(@PathVariable Long id, @RequestParam(defaultValue = "1") int hours) {
         List<SensorReading> all = readings.findByRoomIdAndCreatedAtAfterOrderByCreatedAtAsc(id, LocalDateTime.now().minusHours(hours));
         int step = Math.max(1, all.size() / 120);

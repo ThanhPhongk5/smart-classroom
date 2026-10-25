@@ -169,8 +169,11 @@
       if (!currentRoomId) return;
       try {
         const hrs = $('chartHours').value || 1;
-        const list = await fetchApi('/api/rooms/' + currentRoomId + '/sensors/history?hours=' + hrs);
-        if (!list) return;
+        let list = await fetchApi('/api/rooms/' + currentRoomId + '/history?hours=' + hrs);
+        if (!list || !Array.isArray(list)) {
+          list = await fetchApi('/api/rooms/' + currentRoomId + '/sensors/history?hours=' + hrs);
+        }
+        if (!list || !Array.isArray(list) || list.length === 0) return;
 
         const labels = list.map(s => new Date(s.createdAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
         const chartData = {
@@ -185,10 +188,18 @@
               tension: 0.3
             },
             {
+              label: 'Độ ẩm (%)',
+              data: list.map(s => s.humidity),
+              borderColor: '#10b981',
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              yAxisID: 'yTemp',
+              tension: 0.3
+            },
+            {
               label: 'Ánh sáng (lux)',
               data: list.map(s => s.lux),
-              borderColor: '#9a5b07',
-              backgroundColor: 'rgba(154, 91, 7, 0.08)',
+              borderColor: '#f59e0b',
+              backgroundColor: 'rgba(245, 158, 11, 0.08)',
               yAxisID: 'yLux',
               tension: 0.3
             }
