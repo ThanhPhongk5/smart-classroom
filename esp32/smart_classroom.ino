@@ -1,5 +1,6 @@
 #include <Wire.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
@@ -59,8 +60,12 @@ void drawBattery(int x, int y, int level) {
 // Gui du lieu nhiet do, anh sang truc tiep len Web Dashboard qua WiFi
 void sendDataToWeb(float temp, float hum, float lux) {
   if (WiFi.status() == WL_CONNECTED) {
+    WiFiClientSecure client;
+    client.setInsecure(); // Bo qua kiem tra SSL cert cua Render de ket noi HTTPS thanh cong 100%
+
     HTTPClient http;
-    http.begin(serverUrl);
+    http.begin(client, serverUrl);
+    http.setTimeout(4000);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-Device-Key", deviceKey);
 
@@ -73,15 +78,15 @@ void sendDataToWeb(float temp, float hum, float lux) {
 
     int httpCode = http.POST(jsonPayload);
     if (httpCode == 200) {
-      webStatus = "Web: OK 200";
-      Serial.println("[WEB SYNC] Da gui thanh cong len Web Dashboard!");
+      webStatus = "Web: OK";
+      Serial.println("[WEB SYNC] Da gui thanh cong len Web Dashboard 200 OK!");
     } else {
-      webStatus = "Web: " + String(httpCode);
+      webStatus = "Web:" + String(httpCode);
       Serial.printf("[WEB SYNC] Loi ket noi Web: %d\n", httpCode);
     }
     http.end();
   } else {
-    webStatus = "Mat WiFi";
+    webStatus = "No WiFi";
   }
 }
 
@@ -148,9 +153,13 @@ void loop() {
   display.setCursor(0, 40);
   display.printf("Anh sang: %d%% (%dlx)", lightPercent, (int)luxApprox);
 
-  // Thanh hien thi muc sang
-  display.drawRect(0, 52, 128, 11, SSD1306_WHITE);
-  display.fillRect(2, 54, map(lightPercent, 0, 100, 0, 124), 7, SSD1306_WHITE);
+  // Thanh hien thi muc sang nua trai
+  display.drawRect(0, 52, 60, 11, SSD1306_WHITE);
+  display.fillRect(2, 54, map(lightPercent, 0, 100, 0, 56), 7, SSD1306_WHITE);
+
+  // Hien thi trang thai dong bo Web o nua phai
+  display.setCursor(68, 54);
+  display.print(webStatus);
 
   display.display();
 
